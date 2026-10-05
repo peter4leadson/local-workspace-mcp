@@ -13,6 +13,8 @@ export const SERVER_VERSION = "0.1.0";
 
 const workspaceId = z
   .string()
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/i)
   .describe("Workspace id from workspace_roots, e.g. 'onramp'.");
 const wsPath = z
   .string()
@@ -88,9 +90,12 @@ export function createServer(deps: Deps): McpServer {
 
   const RO = { readOnlyHint: true, openWorldHint: false, idempotentHint: true } as const;
 
-  /** Deny check for repo-relative paths used by git tools (pathspecs, blob paths). */
+  /** Deny check for repo-relative paths used by git tools (pathspecs, blob
+   *  paths). Pathspec magic `:(...)` / `:!` / `:/` and glob metacharacters
+   *  are rejected outright — literal paths only (GIT_LITERAL_PATHSPECS also
+   *  pins literal semantics at the git layer). */
   const denyRepoPath = (p: string) => {
-    if (p.startsWith(":(")) return; // git pathspec magic — can't name an outside file
+    if (p.startsWith(":")) throw new ToolError("INVALID_ARGUMENT", "git pathspec magic is not accepted");
     const clean = p.replace(/^\.\//, "");
     const reason = policy.check(clean);
     if (reason) throw new ToolError("ACCESS_DENIED", `path denied by policy (${reason})`);

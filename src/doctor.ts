@@ -35,6 +35,13 @@ export async function runDoctor(configPath = defaultConfigPath()): Promise<{ ok:
   // config parse
   let cfg;
   try {
+    const { checkConfigPermissions } = await import("./config.js");
+    const perms = checkConfigPermissions(configPath);
+    push("config.permissions", perms.ok, `mode ${perms.mode} (must not be group/world-writable)`);
+  } catch (e) {
+    push("config.permissions", false, String(e));
+  }
+  try {
     cfg = loadConfig(configPath);
     push("config.parse", true, `${configPath} — ${Object.keys(cfg.workspaces).length} workspace(s), ${Object.keys(cfg.tasks).length} task definition(s)`);
   } catch (e) {

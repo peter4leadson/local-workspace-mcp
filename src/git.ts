@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { runBounded, gitEnv } from "./exec.js";
 import { ToolError } from "./paths.js";
 import type { DenyPolicy } from "./policy.js";
@@ -44,8 +45,28 @@ export interface GitRunOpts {
   maxBytes: number;
 }
 
+// Repo-local .git/config is attacker-controlled content inside a workspace:
+// `core.fsmonitor` runs a hook command on `git status`, and include/includeIf
+// can chain further config. Aliases cannot shadow builtins (git ignores such
+// aliases), so plumbing is safe by name. `-c` overrides neutralize
+// command-execution keys where a boolean/constant value works; external diff
+// drivers (`diff.external`, `diff.<drv>.command`) and textconv filters are
+// disabled with `--no-ext-diff` / `--no-textconv` on diff-producing commands
+// because an empty `-c` override still makes git try to exec "".
+const GIT_SAFE_CONFIG = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.sshCommand=true",
+  "-c",
+  "core.gitProxy=true",
+  "-c",
+  "core.pager=cat",
+];
+const GIT_NO_EXT_DIFF = ["--no-ext-diff", "--no-textconv"];
+
 export async function git(root: string, args: string[], opts: GitRunOpts) {
-  return runBounded("git", args, {
+  return runBounded("git", [...GIT_SAFE_CONFIG, ...args], {
     cwd: root,
     timeoutMs: opts.timeoutMs,
     maxOutputBytes: opts.maxBytes,
@@ -58,9 +79,31 @@ export async function isGitRepo(root: string, opts: GitRunOpts): Promise<boolean
   return res.exitCode === 0 && res.stdout.trim() === "true";
 }
 
-/** Files for the search universe: tracked + untracked-but-not-ignored. */
+/**
+ * Require `root` to BE the git toplevel. If a workspace is a subdirectory of
+ * a larger repo, git would otherwise operate on the parent repo — exposing
+ * files outside the authorized root through diffs, blobs and ls-files.
+ */
+export async function isRepoToplevel(root: string, opts: GitRunOpts): Promise<boolean> {
+  const res = await git(root, ["rev-parse", "--show-toplevel"], opts);
+  if (res.exitCode !== 0) return false;
+  const toplevel = res.stdout.trim();
+  if (!toplevel) return false;
+  try {
+    const realTop = await fs.realpath(toplevel);
+    const realRoot = await fs.realpath(root);
+    return realTop === realRoot;
+  } catch {
+    return false;
+  }
+}
+
+/** Files for the search universe: tracked + untracked-but-not-ignored.
+ *  Throws when root isn't a repo toplevel so callers fall back to walking. */
 export async function gitFileUniverse(root: string, env: Record<string, string>, timeoutMs: number): Promise<string[]> {
-  const res = await runBounded("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+  const opts: GitRunOpts = { timeoutMs, maxBytes: 8_000_000 };
+  if (!(await isRepoToplevel(root, opts))) throw new Error("not a git repo toplevel");
+  const res = await runBounded("git", [...GIT_SAFE_CONFIG, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
     cwd: root,
     timeoutMs,
     maxOutputBytes: 8_000_000,
@@ -70,7 +113,42 @@ export async function gitFileUniverse(root: string, env: Record<string, string>,
   return res.stdout.split("\0").filter(Boolean);
 }
 
+/** Strip absolute root paths from subprocess stderr before surfacing it. */
+function cleanErr(root: string, s: string): string {
+  return s.split(root).join("<root>").slice(0, 300);
+}
+
 const STAGED_KINDS = new Set(["M", "A", "D", "T", "R", "C"]);
+
+/** `repo:false` = root is not a git toplevel (non-repo, or nested inside a
+ *  parent repo). `clean` is null when the listing was truncated. */
+export type GitStatusResult =
+  | { repo: false; note: string }
+  | {
+      repo: true;
+      complete: boolean;
+      truncated: boolean;
+      branch: string | null;
+      detached: boolean;
+      head: string;
+      ahead: number;
+      behind: number;
+      clean: boolean | null;
+      staged: string[];
+      modified: string[];
+      deleted: string[];
+      renamed: { from: string; to: string }[];
+      untracked: string[];
+      conflicted: string[];
+      counts: {
+        staged: number;
+        modified: number;
+        deleted: number;
+        renamed: number;
+        untracked: number;
+        conflicted: number;
+      };
+    };
 
 /**
  * Redact patch hunks for policy-denied paths from diff-format output. A
@@ -107,16 +185,20 @@ export class GitOps {
     return { timeoutMs: this.timeoutMs, maxBytes: maxBytes ?? this.maxBytes };
   }
 
-  async status(root: string) {
-    if (!(await isGitRepo(root, this.opts()))) {
-      return { repo: false, note: "not a git repository" };
+  private async repoOrNull(root: string): Promise<boolean> {
+    return isRepoToplevel(root, this.opts());
+  }
+
+  async status(root: string): Promise<GitStatusResult> {
+    if (!(await this.repoOrNull(root))) {
+      return { repo: false, note: "not a git repository toplevel" };
     }
     const res = await git(
       root,
       ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z", "--end-of-options"],
       this.opts()
     );
-    if (res.exitCode !== 0) throw new ToolError("INTERNAL_ERROR", `git status failed: ${res.stderr.slice(0, 300)}`);
+    if (res.exitCode !== 0) throw new ToolError("INTERNAL_ERROR", `git status failed: ${cleanErr(root, res.stderr)}`);
 
     let branch = "";
     let oid = "";
@@ -170,12 +252,14 @@ export class GitOps {
       staged.length + modified.length + deleted.length + renamed.length + untracked.length + conflicted.length === 0;
     return {
       repo: true,
+      complete: !res.truncated,
+      truncated: res.truncated,
       branch: branch === "(detached)" ? null : branch,
       detached: !branch || branch === "(detached)",
       head: oid === "(initial)" ? "(unborn)" : oid,
       ahead,
       behind,
-      clean,
+      clean: res.truncated ? null : clean,
       staged,
       modified,
       deleted,
@@ -197,7 +281,8 @@ export class GitOps {
     root: string,
     opts: { staged?: boolean; base?: string; head?: string; paths?: string[]; stat?: boolean; maxBytes?: number }
   ) {
-    const args = ["diff"];
+    if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
+    const args = ["diff", ...GIT_NO_EXT_DIFF];
     if (opts.stat) args.push("--stat");
     if (opts.staged) args.push("--cached");
     args.push("--end-of-options");
@@ -210,18 +295,19 @@ export class GitOps {
       args.push("--", ...opts.paths.slice(0, 100));
     }
     const res = await git(root, args, this.opts(opts.maxBytes));
-    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git diff failed: ${res.stderr.slice(0, 300)}`);
+    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git diff failed: ${cleanErr(root, res.stderr)}`);
     const out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
     return { repo: true, diff: out, truncated: res.truncated, bytes: out.length };
   }
 
   async log(root: string, opts: { limit?: number; ref?: string }) {
+    if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
     const n = Math.min(Math.max(1, opts.limit ?? 20), 100);
     const format = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1e";
     const args = ["log", `--format=${format}`, "-n", `${n}`, "--end-of-options"];
     if (opts.ref) args.push(assertRef(opts.ref));
     const res = await git(root, args, this.opts());
-    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git log failed: ${res.stderr.slice(0, 300)}`);
+    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git log failed: ${cleanErr(root, res.stderr)}`);
     const commits = res.stdout
       .split("\x1e")
       .map((rec) => rec.trim())
@@ -234,17 +320,26 @@ export class GitOps {
   }
 
   async show(root: string, spec: string, maxBytes?: number) {
+    if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
     const { path: objPath } = splitRevPath(spec);
     const args = objPath
-      ? ["show", "--end-of-options", spec]
-      : ["show", "--format=commit:%H%nshort:%h%nauthor:%an <%ae>%ndate:%aI%nsubject:%s%n---", "--stat", "--end-of-options", spec];
+      ? ["show", ...GIT_NO_EXT_DIFF, "--end-of-options", spec]
+      : [
+          "show",
+          ...GIT_NO_EXT_DIFF,
+          "--format=commit:%H%nshort:%h%nauthor:%an <%ae>%ndate:%aI%nsubject:%s%n---",
+          "--stat",
+          "--end-of-options",
+          spec,
+        ];
     const res = await git(root, args, this.opts(maxBytes));
-    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git show failed: ${res.stderr.slice(0, 300)}`);
+    if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git show failed: ${cleanErr(root, res.stderr)}`);
     const out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
     return { repo: true, spec, output: out, truncated: res.truncated };
   }
 
   async branches(root: string) {
+    if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
     const current = await git(root, ["rev-parse", "--abbrev-ref", "HEAD"], this.opts());
     const detached = current.stdout.trim() === "HEAD";
     const res = await git(

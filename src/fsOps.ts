@@ -286,6 +286,7 @@ export class FsOps {
     let totalMatched = 0;
     for (const rel of files) {
       const relPosix = rel.split(path.sep).join("/");
+      if (relPosix.startsWith("..")) continue; // universe can never escape, but never trust a list
       if (scopePrefix && !relPosix.startsWith(scopePrefix)) continue;
       const target = basenameOnly ? relPosix.split("/").pop()! : relPosix;
       if (!minimatch(target, pattern, { dot: true, nocase: true })) {
@@ -383,14 +384,14 @@ export class FsOps {
       }
     }
 
+    // Denied-hit counts are deliberately NOT returned: reporting them would be
+    // a content oracle over denied files ("does .env contain X?").
     return {
       workspace,
       path: r.rel,
       query: opts.regex ? `regex:${query}` : `literal:${query}`,
       matches,
       shown: matches.length,
-      rawMatches: rawCount,
-      deniedFiltered: deniedCount,
       truncated: rawCount > matches.length || result.truncated || result.timedOut,
       timedOut: result.timedOut,
       backend: "rg",

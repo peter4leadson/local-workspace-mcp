@@ -110,6 +110,30 @@ describe("protocol end-to-end", () => {
     expect(r.parsed.untracked).toContain("uncommitted.txt");
   });
 
+  it("git_status flags denied filenames", async () => {
+    const r = await callText("git_status", { workspace: "test" });
+    expect(r.parsed.deniedPaths).toContain(".env");
+    expect(r.parsed.untracked).toContain(".env"); // name visible, contents never
+  });
+
+  it("git_show HEAD:.env is denied before reaching git", async () => {
+    const r = await callText("git_show", { workspace: "test", spec: "HEAD:.env" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("git_diff pathspec magic is rejected", async () => {
+    const r = await callText("git_diff", { workspace: "test", paths: [":(literal).env"] });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^INVALID_ARGUMENT/);
+  });
+
+  it("git_diff redacts tracked denied-file hunks", async () => {
+    const r = await callText("git_diff", { workspace: "test" });
+    expect(r.text).not.toContain("SECRET=two");
+    expect(r.text).toContain("denied-content");
+  });
+
   it("task_run executes only allowlisted tasks", async () => {
     const okR = await callText("task_run", { workspace: "test", taskId: "echo-ok" });
     expect(okR.parsed.stdout).toContain("task-ok");

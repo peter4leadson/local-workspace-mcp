@@ -48,11 +48,19 @@ const MAX_INPUT_PATH = 4096;
 const CONTROL_CHARS = /[\0-\x1f\x7f]/;
 const WINDOWS_DRIVE = /^[A-Za-z]:(?:[\\/]|$)/;
 
-/** True when `child` is `parent` itself or strictly beneath it. Compared
- *  case-insensitively because the primary target FS (APFS) is
- *  case-insensitive; the authoritative gate is the realpath check. */
+/** Lexical-stage gate: compared case-insensitively so wrong-case input paths
+ *  on case-insensitive filesystems (default APFS) still reach the canonical
+ *  stage. NOT authoritative for canonical paths — see isInsideCanonical. */
 export function isInside(child: string, parent: string): boolean {
   const rel = path.relative(parent.toLowerCase(), child.toLowerCase());
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** Canonical-stage gate: strict case-sensitive containment of realpath'd
+ *  paths. realpath returns the on-disk canonical name; a case-folded compare
+ *  here would let a case-variant sibling escape on case-sensitive volumes. */
+export function isInsideCanonical(child: string, parent: string): boolean {
+  const rel = path.relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
@@ -179,7 +187,7 @@ export class WorkspaceIndex {
     for (let depth = 0; depth <= 64; depth++) {
       try {
         const real = await fs.realpath(current);
-        if (!isInside(real, ws.realRoot)) {
+        if (!isInsideCanonical(real, ws.realRoot)) {
           throw new ToolError(
             "ACCESS_DENIED",
             `resolved path escapes workspace root (symlink or alias): ${JSON.stringify(toRel(ws.realRoot, candidate))}`
@@ -196,6 +204,9 @@ export class WorkspaceIndex {
         const code = (err as NodeJS.ErrnoException).code;
         if (code === "ELOOP") {
           throw new ToolError("ACCESS_DENIED", "symlink loop detected");
+        }
+        if (code === "ENOTDIR") {
+          throw new ToolError("NOT_FOUND", `path does not exist (a component is not a directory): ${JSON.stringify(toRel(ws.realRoot, candidate))}`);
         }
         if (code !== "ENOENT") {
           throw new ToolError("INTERNAL_ERROR", `path resolution failed: ${code ?? String(err)}`);

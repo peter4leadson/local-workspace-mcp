@@ -70,7 +70,23 @@ export interface LoadedConfig extends RawConfig {
   configPath: string;
 }
 
+/** The config file is the trust root: it defines authorized roots and
+ *  task argv. A group/world-writable config is a privilege boundary hole —
+ *  fail closed. */
+export function checkConfigPermissions(configPath = defaultConfigPath()): { ok: boolean; mode: string } {
+  const st = fs.statSync(configPath);
+  const mode = st.mode & 0o777;
+  return { ok: (mode & 0o022) === 0, mode: mode.toString(8) };
+}
+
 export function loadConfig(configPath = defaultConfigPath()): LoadedConfig {
+  const perms = checkConfigPermissions(configPath);
+  if (!perms.ok) {
+    throw new Error(
+      `CONFIG_ERROR: ${configPath} is group/world-writable (mode ${perms.mode}); ` +
+        `it defines authorized roots and task commands — chmod 600 it.`
+    );
+  }
   let rawText: string;
   try {
     rawText = fs.readFileSync(configPath, "utf8");

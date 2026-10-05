@@ -41,6 +41,7 @@ export async function makeFixture(opts: { git?: boolean } = {}): Promise<Fixture
   fs.mkdirSync(path.join(wsDir, "src"), { recursive: true });
   fs.mkdirSync(path.join(wsDir, "keys"), { recursive: true });
   fs.mkdirSync(path.join(wsDir, "deep", "a", "b"), { recursive: true });
+  fs.mkdirSync(path.join(wsDir, ".ssh"), { recursive: true });
   fs.mkdirSync(outsideDir, { recursive: true });
 
   fs.writeFileSync(path.join(wsDir, "src", "index.ts"), "export const x = 1;\n".repeat(10));
@@ -50,6 +51,11 @@ export async function makeFixture(opts: { git?: boolean } = {}): Promise<Fixture
   fs.writeFileSync(path.join(wsDir, ".env.example"), "SECRET=\n");
   fs.writeFileSync(path.join(wsDir, "keys", "id_rsa"), "PRIVATE KEY MATERIAL\n");
   fs.writeFileSync(path.join(wsDir, "secrets.json"), '{"token":"abc"}\n');
+  fs.writeFileSync(path.join(wsDir, ".envrc"), "export SECRET=1\n");
+  fs.writeFileSync(path.join(wsDir, "prod.env"), "SECRET=1\n");
+  fs.writeFileSync(path.join(wsDir, ".ssh", "config"), "Host *\n");
+  fs.writeFileSync(path.join(wsDir, ".zsh_history"), "export TOKEN=x\n");
+  fs.writeFileSync(path.join(wsDir, "deploy.tfvars"), 'key = "v"\n');
   fs.writeFileSync(path.join(wsDir, "cert.pem"), "-----BEGIN CERTIFICATE-----\nxxx\n");
   fs.writeFileSync(path.join(wsDir, "big.bin"), Buffer.concat([Buffer.from("BIN"), Buffer.alloc(64, 0)]));
   fs.writeFileSync(path.join(wsDir, "huge.txt"), "x".repeat(6_000_000));

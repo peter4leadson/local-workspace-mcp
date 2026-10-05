@@ -34,7 +34,7 @@ export class AuditLog {
     if (!this.file) return;
     const line = JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n";
     try {
-      fs.appendFile(this.file, line, () => {});
+      fs.appendFile(this.file, line, { mode: 0o600 }, () => {});
     } catch {
       /* best-effort */
     }
