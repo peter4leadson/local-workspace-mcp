@@ -64,6 +64,22 @@ Independent clean-context review round 2 (all remediated + regressed):
   extglob parens and dangling escapes; stderr scrubbing is case-insensitive
   over configured+canonical roots; SSH2-format key markers detected.
 
+Verification pass on the round-2 fixes (all remediated + regressed):
+
+- **Fixed HIGH** — annotated tags pointing at blobs/trees peeled through the
+  object-type gate (`git show <tag>` displays the target). The gate now
+  checks the peeled type: `spec^{}` must resolve to `commit`.
+- **Fixed MED** — task env git hardening was nominal only: no env var
+  disables repo-local config, so `core.fsmonitor`-style exec keys in
+  `.git/config` stayed live inside tasks. `GIT_CONFIG_{COUNT,KEY,VALUE}`
+  command-scope overrides now pin the dangerous keys; dynamically proven —
+  an fsmonitor hook in fixture `.git/config` does not fire under `task_run`.
+- **Fixed MED** — the whole-file key scan in `fs_search_content` was
+  unbounded (N large files → unbounded IO per call). Now capped per-file
+  (maxReadFileBytes) and per-call (64 unique files).
+- **Fixed LOW** — `otherDiffPaths` path-collection line cap removed (scan to
+  first `@@`); config error message clarifies symlink/dir causes.
+
 ### Added
 
 - `tests/adversarial.test.ts`: 23-case adversarial suite covering

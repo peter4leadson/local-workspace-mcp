@@ -149,6 +149,21 @@ describe("GIT-LEAK: denied content must not escape through diffs", () => {
     expect(c.output).toContain("commit");
   });
 
+  it("NF-1: annotated tag pointing at a denied blob cannot peel past the gate", async () => {
+    const sha = execFileSync("git", ["rev-parse", "HEAD:.env.tracked"], {
+      cwd: f.wsDir,
+      encoding: "utf8",
+    }).trim();
+    execFileSync("git", ["tag", "-a", "-m", "x", "leaktag", sha], { cwd: f.wsDir });
+    try {
+      const s = await gitOps.show(f.wsDir, "leaktag").catch((e) => e);
+      expect(["ACCESS_DENIED", "INVALID_ARGUMENT"]).toContain(s.code);
+      expect(JSON.stringify(s)).not.toContain("SECRET=one");
+    } finally {
+      execFileSync("git", ["tag", "-d", "leaktag"], { cwd: f.wsDir });
+    }
+  });
+
   it("F2: merge-conflict combined diff of a denied file is suppressed", async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-cc-"));
     try {
@@ -290,6 +305,31 @@ describe("EXEC: task_runner boundaries", () => {
     expect(r.stdout).toContain("GIT_TERMINAL_PROMPT=0");
     expect(r.stdout).toContain("GIT_LITERAL_PATHSPECS=1");
     expect(r.stdout).toContain("GIT_CONFIG_GLOBAL=/dev/null");
+  });
+
+  it("NF-2: hostile .git/config exec hooks are inert inside task subprocesses", async () => {
+    const marker = path.join(f.tmp, "fsmonitor-ran.marker");
+    const hook = path.join(f.tmp, "fsm-hook.sh");
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch "${marker}"\nexit 0\n`);
+    fs.chmodSync(hook, 0o755);
+    const gitConfig = path.join(f.wsDir, ".git", "config");
+    const orig = fs.readFileSync(gitConfig, "utf8");
+    fs.appendFileSync(gitConfig, `[core]\n\tfsmonitor = ${hook}\n`);
+    try {
+      const defs = { gs: { command: ["git", "status", "--porcelain"], timeoutMs: 8000 } };
+      const idx = new WorkspaceIndex({ w: { path: f.wsDir, tasks: ["gs"] } }, f.policy);
+      await idx.init();
+      const t = new TaskRunner(idx, defs, f.cfg.limits);
+      await t.run("w", "gs");
+      await new Promise((r) => setTimeout(r, 300));
+      expect(fs.existsSync(marker)).toBe(false);
+      // Sanity: operator extras cannot re-open the door via GIT_* names.
+      const env = sanitizedEnv({ GIT_CONFIG_COUNT: "0", GIT_EDITOR: "/bin/sh" });
+      expect(env.GIT_CONFIG_COUNT).toBeUndefined();
+      expect(env.GIT_EDITOR).toBeUndefined();
+    } finally {
+      fs.writeFileSync(gitConfig, orig);
+    }
   });
 
   it("operator env extras cannot inject secret-named vars; ${PATH} expands", () => {

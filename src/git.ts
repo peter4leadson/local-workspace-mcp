@@ -280,7 +280,7 @@ function otherDiffPaths(part: string): string[] {
     const q = parseQuotedToken(tail);
     paths.push(q ? q.value : tail);
   }
-  for (const l of lines.slice(1, 16)) {
+  for (const l of lines.slice(1)) {
     if (l.startsWith("@@")) break;
     const m = /^(?:---|\+\+\+) (.+)$/.exec(l);
     if (m) {
@@ -500,17 +500,18 @@ export class GitOps {
       if (reason) throw new ToolError("ACCESS_DENIED", `path denied by policy (${reason})`);
     }
     if (!objPath) {
-      // Object-type gate: a bare spec must resolve to a commit or annotated
-      // tag. `git show <blob-sha>` prints raw blob content regardless of
-      // --stat, and the author of an attacker-controlled repo knows blob
-      // SHAs offline — name-based deny can be bypassed entirely without this.
-      // Tree objects are refused too (they leak denied pathnames).
-      const t = await git(root, ["cat-file", "-t", spec], this.opts(64));
+      // Object-type gate on the PEELED object: a bare spec must resolve to a
+      // commit. `git show <blob-sha>` prints raw blob content regardless of
+      // --stat, and `git show <annotated-tag>` dereferences the tag — a
+      // tag→blob ref would peel through a naive `cat-file -t` check and emit
+      // denied content. `^{}` peels tags recursively (identity on non-tags),
+      // so the surviving type is what `show` would actually display.
+      const t = await git(root, ["cat-file", "-t", `${spec}^{}`], this.opts(64));
       const type = t.stdout.trim();
-      if (t.exitCode !== 0 || (type !== "commit" && type !== "tag")) {
+      if (t.exitCode !== 0 || type !== "commit") {
         throw new ToolError(
           "INVALID_ARGUMENT",
-          `show accepts commit/tag refs or 'rev:path' (object type ${JSON.stringify(type || "unknown")} is not displayable)`
+          `show accepts commit refs or 'rev:path' (object resolves to ${JSON.stringify(type || "unknown")}, not displayable)`
         );
       }
     }

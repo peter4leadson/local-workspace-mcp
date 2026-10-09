@@ -96,6 +96,15 @@ Independent clean-context review (second round) added:
 | F-12 | LOW | task env blocklist gaps → `^GIT*`/`^PYTHON`/`^PERL`/`^RUBY`/shell-hook vars blocked. |
 | F-13 | LOW | SSH2-format key markers missed → flexible-dash regex. |
 
+A follow-up verification pass on the F-round fixes added:
+
+| NF-1 | HIGH | annotated tag→blob peeled through the `cat-file -t` gate → gate now checks the PEELED type (`spec^{}` must be `commit`). |
+| NF-2 | MED | env vars alone can't neutralize repo-local `.git/config` exec keys inside tasks → `GIT_CONFIG_{COUNT,KEY,VALUE}` command-scope overrides injected into task env. |
+| NF-3 | MED | unbounded whole-file scans in search → per-file `maxReadFileBytes` cap + 64-file-per-call budget (head sniff beyond). |
+| NF-4 | LOW | UTF-16/encoding laundering can hide a marker from the byte-level scan → documented; marker detection is a heuristic boundary, not absolute. |
+| NF-5 | LOW | `otherDiffPaths` line cap → scans until first `@@` hunk marker. |
+| NF-6 | LOW | config-symlink refusal may surprise dotfiles setups; `/tmp` configs refused by dir-perm check — documented behavior. |
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
@@ -119,6 +128,21 @@ Independent clean-context review (second round) added:
 6. **Prompt injection via file content**: a README cannot widen policy, but a
    model may be told to read more files; the deny policy and root boundary
    remain the hard limit.
+7. **Content-marker heuristics**: private-key detection matches armor markers
+   (`BEGIN … PRIVATE KEY`, PuTTY). A UTF-16/otherwise-encoded key evades the
+   byte-level scan (decodes with NULs, still catchable by the binary probe in
+   the first 8 KiB only). Marker detection is defense in depth, not the
+   primary boundary — name/policy denies are.
+8. **Task-side git config**: `GIT_CONFIG_*` env overrides neutralize the
+   headline repo-config exec keys (`core.fsmonitor`, `core.sshCommand`,
+   `diff.external`, …) but cannot enumerate per-driver `diff.<name>.command`/
+   `textconv` hooks. A task that runs `git diff` in a hostile repo with a
+   configured diff driver could still exec it — constrain task argv and
+   prefer non-diff git commands in allowlisted tasks.
+9. **Search-scan budget**: beyond 64 unique files (or 50 MB per file) in one
+   `fs_search_content` call, files get head-only sniff + per-preview marker
+   checks — a key buried deep in a large file beyond the budget could leak
+   base64 lines lacking the marker. Bounded 240-char previews limit blast.
 
 ## Failure policy
 

@@ -98,8 +98,9 @@ export function loadConfig(configPath = defaultConfigPath()): LoadedConfig {
   }
   if (!perms.ok) {
     throw new Error(
-      `CONFIG_ERROR: ${configPath} is group/world-writable (mode ${perms.mode}); ` +
-        `it defines authorized roots and task commands — chmod 600 it.`
+      `CONFIG_ERROR: ${configPath} fails the trust-root check (mode ${perms.mode}): ` +
+        `the file must be non-group/world-writable, not a symlink, and live in a ` +
+        `non-group/world-writable directory — it defines authorized roots and task commands.`
     );
   }
   let rawText: string;

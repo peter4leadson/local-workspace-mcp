@@ -185,15 +185,19 @@ export class FsOps {
    * Whole-file scan for private-key markers. The head-only sniff is not a
    * boundary: key material padded past 8 KiB must still be refused. Streams
    * line-by-line and exits on first hit, so the common case stays cheap.
+   * `maxBytes` bounds per-file scan cost (search calls scan many files).
    */
-  private async fileHasKeyMaterial(canonical: string): Promise<boolean> {
+  private async fileHasKeyMaterial(canonical: string, maxBytes?: number): Promise<boolean> {
     const rl = readline.createInterface({
       input: createReadStream(canonical, { encoding: "utf8" }),
       crlfDelay: Infinity,
     });
+    let scanned = 0;
     try {
       for await (const line of rl) {
         if (hasPrivateKeyMaterial(line)) return true;
+        scanned += line.length + 1;
+        if (maxBytes !== undefined && scanned > maxBytes) return false;
       }
       return false;
     } catch {
@@ -470,7 +474,13 @@ export class FsOps {
     const matches: { path: string; line: number; preview: string }[] = [];
     let deniedCount = 0;
     let rawCount = 0;
-    // Content-level secret sniff, cached per matched file.
+    // Content-level secret sniff, cached per matched file. The full-file
+    // scan is bounded per file (maxReadFileBytes) AND per call
+    // (SCAN_FILE_CAP unique files) so a hostile repo can't turn a search
+    // into an unbounded IO pass. Beyond the cap, per-preview marker checks
+    // still apply (head sniff fallback).
+    const SCAN_FILE_CAP = 64;
+    let scannedFiles = 0;
     const sniffed = new Map<string, boolean>();
     for (const line of result.stdout.split("\n")) {
       if (!line) continue;
@@ -496,8 +506,14 @@ export class FsOps {
       }
       if (!sniffed.has(abs)) {
         try {
-          // Whole-file scan — a head-only sniff misses padded keys.
-          sniffed.set(abs, await this.fileHasKeyMaterial(abs));
+          if (scannedFiles < SCAN_FILE_CAP) {
+            scannedFiles++;
+            // Whole-file scan up to the read-size cap — a head-only sniff
+            // misses padded keys; an unbounded one is a per-call IO DoS.
+            sniffed.set(abs, await this.fileHasKeyMaterial(abs, this.limits.maxReadFileBytes));
+          } else {
+            sniffed.set(abs, (await this.sniff(abs, rel)).secret);
+          }
         } catch {
           sniffed.set(abs, false);
         }

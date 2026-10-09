@@ -139,9 +139,28 @@ export function gitEnv(): Record<string, string> {
  * Task subprocess env: the sanitized base PLUS git hardening. An allowlisted
  * task may invoke `git` — without these keys the attacker-controlled
  * repo .git/config is live inside the task (`core.fsmonitor` execs on
- * `git status`, `include.path` chains further config). Operator extras apply
- * last via applyExtras (GIT_* names are blocked there).
+ * `git status`, `include.path` chains further config). No env var disables
+ * repo-local config outright, so the dangerous keys are overridden at
+ * command scope via GIT_CONFIG_{COUNT,KEY,VALUE}, which outranks .git/config.
+ * Per-driver `diff.<name>.command`/`textconv` can't be enumerated statically;
+ * `diff.external` is pinned to `true` (a no-op binary) as the reachable fix.
+ * Operator extras apply last via applyExtras (GIT_* names are blocked there).
  */
 export function taskEnv(extra?: Record<string, string>): Record<string, string> {
-  return applyExtras(gitEnv(), extra);
+  const env = gitEnv();
+  const gitSafe: [string, string][] = [
+    ["core.fsmonitor", "false"],
+    ["core.sshCommand", "true"],
+    ["core.gitProxy", "true"],
+    ["core.pager", "cat"],
+    ["color.ui", "false"],
+    ["diff.external", "true"],
+    ["core.untrackedCache", "false"],
+  ];
+  env.GIT_CONFIG_COUNT = String(gitSafe.length);
+  gitSafe.forEach(([k, v], i) => {
+    env[`GIT_CONFIG_KEY_${i}`] = k;
+    env[`GIT_CONFIG_VALUE_${i}`] = v;
+  });
+  return applyExtras(env, extra);
 }

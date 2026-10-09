@@ -179,7 +179,7 @@ runtime key). See `docs/OPERATIONS.md` for the recovery procedure.
 ## Verification
 
 ```sh
-pnpm test                       # 167 vitest cases incl. 31-case adversarial suite
+pnpm test                       # 169 vitest cases incl. 33-case adversarial suite
 scripts/inspector-smoke.sh      # 17-check MCP Inspector CLI battery
 workspace-mcp doctor            # deterministic diagnostics (config, roots, tools)
 pnpm audit --prod               # zero known runtime vulnerabilities
