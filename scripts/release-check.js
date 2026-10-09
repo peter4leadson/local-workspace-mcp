@@ -12,6 +12,8 @@
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /** npm dist-tag for a semver version: any prerelease component → next. */
 export function deriveDistTag(version) {
@@ -34,7 +36,7 @@ export function resolveTagRef({ releaseTag = "", version } = {}) {
 /** Classify `npm view` output: "exists" | "absent"; throws (fail closed) otherwise. */
 export function classifyNpmView({ code, output }) {
   if (code === 0) return "exists";
-  if (/E404|\b404\b/.test(output)) return "absent";
+  if (/^npm error code E404/m.test(output) || /^npm error 404 Not Found/m.test(output)) return "absent";
   throw new Error(`npm view failed without a clean 404 — refusing to continue:\n${String(output).slice(0, 500)}`);
 }
 
@@ -81,4 +83,6 @@ function main() {
   console.log(`version ${expected}: consistent, tagged, unpublished (dist-tag ${distTag})`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// Run main only when executed directly — tolerant of spaces/percent-encoding
+// and Windows paths in argv[1] (a naive file:// compare can silently skip).
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) main();

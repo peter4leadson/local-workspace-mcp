@@ -54,16 +54,15 @@ describe("classifyNpmView (duplicate check fails closed)", () => {
   it("E404 → definitely absent", () => {
     expect(classifyNpmView({ code: 1, output: "npm error code E404\nnpm error 404 Not Found" })).toBe("absent");
   });
+  it("exit 0 with empty output → exists", () => {
+    expect(classifyNpmView({ code: 0, output: "" })).toBe("exists");
+  });
   it.each([
-    ["registry outage", { code: 1, output: "npm error ETIMEDOUT registry.npmjs.org" }],
-    ["auth failure", { code: 1, output: "npm error code E401 401 Unauthorized" }],
-    ["empty failure", { code: 1, output: "" }],
-    ["success-looking garbage", { code: 0, output: "" }], // exit 0 always means "exists"
-  ])("%s → throws (fail closed)", (_name, res) => {
-    expect(() => classifyNpmView(res as never)).not.toThrow;
-    // exit-0 case returns "exists"; nonzero non-404 must throw
-    if ((res as { code: number }).code !== 0) {
-      expect(() => classifyNpmView(res as never)).toThrow(/refusing to continue/);
-    }
+    ["registry outage", "npm error ETIMEDOUT registry.npmjs.org"],
+    ["auth failure", "npm error code E401 401 Unauthorized"],
+    ["empty failure", ""],
+    ["404 substring in non-404 error", "npm error proxy replied 404 during auth"],
+  ])("nonzero without a clean E404 (%s) → throws (fail closed)", (_name, output) => {
+    expect(() => classifyNpmView({ code: 1, output })).toThrow(/refusing to continue/);
   });
 });
