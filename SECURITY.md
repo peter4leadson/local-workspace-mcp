@@ -14,7 +14,8 @@ are documented as residual risks in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)
 ## Reporting
 
 This project is currently a private release candidate. Report suspected
-vulnerabilities privately to the repository owner through an existing direct
+vulnerabilities privately to the repository owner,
+[Peter C. Bennett](https://petercbennett.com), through an existing direct
 channel — do not file public issues or post reproductions containing real
 file paths, hostnames, or contents. Once the repository is public, use
 GitHub's private vulnerability reporting (Security Advisories).

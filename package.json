@@ -4,6 +4,11 @@
   "description": "Read-oriented local workspace MCP server: bounded filesystem, git and named-task tools over explicitly authorized roots.",
   "license": "UNLICENSED",
   "private": true,
+  "author": "Peter C. Bennett (https://petercbennett.com)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peter4leadson/local-workspace-mcp.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=20"

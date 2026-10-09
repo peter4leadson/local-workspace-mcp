@@ -270,22 +270,22 @@ its directory is group/world-writable, or the path is a symlink.
     "myproj": {
       "path": "/abs/path", // required
       "description": "…",
-      "tasks": ["typecheck"] // ids the caller may run here
-    }
+      "tasks": ["typecheck"], // ids the caller may run here
+    },
   },
   "tasks": {
     "typecheck": {
       "command": ["pnpm", "typecheck"], // argv only; never a command string
       "cwd": "subdir-inside-root", // optional; contained to the root
       "timeoutMs": 180000, // 1s..300s; 300s is a hard cap
-      "env": { "PATH": "/opt/node/bin:${PATH}" } // ${VAR} expands vs base env
-    }
+      "env": { "PATH": "/opt/node/bin:${PATH}" }, // ${VAR} expands vs base env
+    },
   },
   "deny": ["**/extra-secret/**"], // appended to built-in rules; evaluated
   // BEFORE the template allowlist, so an operator can re-deny
   // .env.example; malformed patterns fail config load, fail-closed
   "auditLog": "/abs/path.jsonl", // optional; defaults next to the config
-  "limits": {} // byte/line/count caps
+  "limits": {}, // byte/line/count caps
 }
 ```
 
@@ -359,3 +359,7 @@ pnpm audit --prod            # dependency audit
 v0.1.0 is a private release candidate. The public surface (this README,
 [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is the
 artifact being evaluated. Nothing has been published.
+
+---
+
+Maintained by [Peter C. Bennett](https://petercbennett.com).

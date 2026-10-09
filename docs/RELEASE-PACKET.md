@@ -267,7 +267,9 @@ registry; public npm + MCP registry listing only after owner sign-off.
    `main` and re-point the default).
 2. License (recommended: MIT).
 3. npm publish identity + scope (`private:true` held until decided; publish
-   adds `repository`/`author` fields and a license line).
+   adds a license line — `repository`/`author` fields are already in place:
+   `author` is `Peter C. Bennett (https://petercbennett.com)`, no public
+   email, matching SECURITY.md's contact posture).
 4. MCP Registry / marketplace submission (requires a published npm package
    first, plus `server.json` + `mcpName` — none created yet, by design).
 5. Whether the tunnel should move to supervised `runtimes connect`.
