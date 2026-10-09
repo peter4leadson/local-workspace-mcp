@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { makeFixture, cleanup, type Fixture } from "./helpers.js";
 import { ToolError } from "../src/paths.js";
 
@@ -80,8 +82,15 @@ describe("containment", () => {
   });
 
   it("handles case-variant paths on case-insensitive fs", async () => {
-    const r = await f.index.resolve("test", "SRC/HELLO.TXT");
-    expect(r.rel.toLowerCase()).toBe("src/hello.txt");
+    // Case-insensitive filesystems resolve SRC/HELLO.TXT to src/hello.txt;
+    // case-sensitive filesystems must fail closed with NOT_FOUND.
+    const caseInsensitive = fs.existsSync(path.join(f.wsDir, "SRC/HELLO.TXT"));
+    if (caseInsensitive) {
+      const r = await f.index.resolve("test", "SRC/HELLO.TXT");
+      expect(r.rel.toLowerCase()).toBe("src/hello.txt");
+    } else {
+      await expect(f.index.resolve("test", "SRC/HELLO.TXT")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
   });
 
   it("root path itself resolves to '.'", async () => {

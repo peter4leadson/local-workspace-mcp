@@ -70,8 +70,16 @@ describe("FS-CONTAIN: permission and special-file behavior", () => {
   it("NFD unicode name and NFC name resolve to the same canonical file", async () => {
     const nfd = path.join(f.wsDir, "e\u0301clair.txt");
     fs.writeFileSync(nfd, "eclair\n");
-    const r = await f.index.resolve("test", "\u00e9clair.txt"); // NFC input
-    expect(r.rel.normalize("NFC")).toBe("éclair.txt");
+    // Detect actual fs normalization rather than assuming a platform:
+    // APFS resolves NFC→NFD (same file); ext4 stores bytes as written, so
+    // the NFC name genuinely does not exist and must fail closed.
+    const normalizes = fs.existsSync(path.join(f.wsDir, "\u00e9clair.txt"));
+    if (normalizes) {
+      const r = await f.index.resolve("test", "\u00e9clair.txt"); // NFC input
+      expect(r.rel.normalize("NFC")).toBe("éclair.txt");
+    } else {
+      await expect(f.index.resolve("test", "\u00e9clair.txt")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
   });
 });
 

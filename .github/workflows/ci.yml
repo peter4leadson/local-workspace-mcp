@@ -26,6 +26,8 @@ jobs:
         with:
           node-version: "22"
           cache: pnpm
+      - name: Install ripgrep (fs_search_content dependency)
+        run: sudo apt-get install -y ripgrep
       - name: Install (frozen lockfile, scripts gated by approve-builds)
         run: pnpm install --frozen-lockfile
       - name: Typecheck
