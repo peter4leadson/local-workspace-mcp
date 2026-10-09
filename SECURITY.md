@@ -36,19 +36,22 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 - a repository-controlled artifact (config file, `.git/config`, filename,
   symlink) widening roots, deny rules, or task definitions;
 - code execution beyond operator-allowlisted task argv;
-- absolute host paths or environment values surfaced to a caller.
+- absolute host paths (other than an operator-configured task argv reported
+  by its own spawn failure) or environment values surfaced to a caller.
 
 ## Hardening posture (what is already enforced)
 
 - Read-oriented tool surface — no write/edit/delete tools and no arbitrary
-  command execution exist in V1. The only executable surface is `task_run`,
+  command execution exist in v1. The only executable surface is `task_run`,
   which runs operator-allowlisted argv (`shell:false`) with real side
   effects — bounded invocation, not a sandbox.
 - Lexical + canonical (realpath) containment with ancestor walking.
 - Deny policy on relative paths and basenames, evaluated on both the lexical
   and resolved path; deny rules and workspace roots live only in the
   operator-owned config file.
-- Content-level private-key marker refusal (name-independent, whole-file).
+- Content-level private-key marker refusal (name-independent; whole-file for
+  `fs_read`/`git_show` blobs; in search, whole-file up to per-file/per-call
+  scan budgets — see THREAT-MODEL residual 9).
 - `rg --json` parsing — crafted filenames cannot spoof match attribution.
 - Diff redaction across both sides of renames; fail-closed on unparseable
   headers; historical blob access denied by path and by key material.

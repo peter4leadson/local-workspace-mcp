@@ -6,16 +6,16 @@ hosting, npm identity, registry submission, remote attach for CI proof).
 Security disposition: SHIP, independently reviewed at `a3fe113` plus
 verified deltas through `0c9450e`. Do not publish until the owner acts.
 
-|                    |                                                                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------- |
-| Canonical source   | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote)                               |
-| Implementation SHA | `a3fe113e0f6c7983a7917ae8eae86cce8c19d01a` (security verdict bound here)                            |
-| Candidate SHA      | `81908362c9ff498171e4da5e90ef436c1406365e` (implementation + docs + review remediations + CI fixes) |
-| Private remote     | `github.com/peter4leadson/local-workspace-mcp` — visibility PRIVATE, verified pre- and post-push    |
-| Release branch     | `release/mcp-corporate-readiness-2026-10-09`                                                        |
-| Release worktree   | `local-workspace-mcp-release/` (isolated; live hosts run their own install)                         |
-| Package            | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`                                |
-| Runtime            | Node ≥20, pnpm 10.18.2 pinned by hash                                                               |
+|                    |                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| Canonical source   | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote)                            |
+| Implementation SHA | `a3fe113e0f6c7983a7917ae8eae86cce8c19d01a` (security verdict bound here)                         |
+| Candidate SHA      | updated below after the 2026-10-09 second-pass EA remediation (see §3a)                          |
+| Private remote     | `github.com/peter4leadson/local-workspace-mcp` — visibility PRIVATE, verified pre- and post-push |
+| Release branch     | `release/mcp-corporate-readiness-2026-10-09`                                                     |
+| Release worktree   | `local-workspace-mcp-release/` (isolated; live hosts run their own install)                      |
+| Package            | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`                             |
+| Runtime            | Node ≥20, pnpm 10.18.2 pinned by hash                                                            |
 
 ## 1. What this is
 
@@ -25,8 +25,9 @@ roots. One process per host session over stdio JSON-RPC. No write/edit/delete
 tools, no arbitrary shell, no inbound listener, no runtime `npx`.
 
 Architecture: `cli.ts → server.ts (MCP adapter) → {paths, policy, fsOps, git,
-tasks, exec, audit, doctor}`. Config file is the trust root and lives outside
-every watched root. Full boundary inventory in `docs/THREAT-MODEL.md`.
+tasks, exec, audit, doctor}`. Config file is the trust root; the operator
+keeps it outside watched roots (location is guidance, not enforced). Full
+boundary inventory in `docs/THREAT-MODEL.md`.
 
 ## 2. Gate ledger
 
@@ -38,9 +39,9 @@ every watched root. Full boundary inventory in `docs/THREAT-MODEL.md`.
 | G4 MCP protocol assurance          | PASS            | `scripts/inspector-smoke.sh` — 17/17 on the `0c9450e` build; 14/14 tools, annotations, stdio purity                                                                                                                                                                       |
 | G5 Supply-chain assurance          | PASS            | `pnpm audit` clean prod+dev; 95 prod components all permissive (83 MIT/7 ISC/2 BSD-3/1 BSD-2); CycloneDX SBOM via `scripts/sbom.mjs`; exact pins + lockfile + `minimum-release-age`                                                                                       |
 | G6 Developer onboarding            | PASS            | fresh-environment test in isolated synthetic workspace (`/tmp/mcp-onboard`): init-config → doctor → stdio initialize → roots/list/read → denials (`.env`, `.ssh`, traversal) → git_status/diff → task_run allow + TASK_DENIED → malformed/mode-666 config refused         |
-| G7 Experience assurance            | PASS            | full pipeline GROUND→LANGUAGE→STRUCTURE→STATES→INDEPENDENT SEATS→RENDERED VERIFICATION→VERDICT LEDGER; all Critical/High closed; see §3a                                                                                                                                  |
-| G8 Independent evaluation          | PASS            | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; 4-seat fresh-context docs review (onboarding/security/maintainability/rendered); all findings remediated                                                                     |
-| G9 Release-package reproducibility | PASS            | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 22 files (dist+docs+scripts+top-level md); identical code at `0c9450e` (docs/string delta only)                                                                  |
+| G7 Experience assurance            | PASS            | EA pipeline run twice; second full pass at the final SHA below; all Critical/High closed; see §3a–§3b                                                                                                                                  |
+| G8 Independent evaluation          | PASS            | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; second-pass 4-seat fresh-context docs review (cold dev / security / editor / rendered craft) — verdicts in §3b                                                                     |
+| G9 Release-package reproducibility | PASS            | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 21 files / 49.4 kB (internal RELEASE-PACKET excluded); `prepack` builds dist so `pnpm pack` cannot produce a distless tarball                                                                  |
 | G10 Publication preparation        | PASS            | SECURITY/CONTRIBUTING/CHANGELOG/CI workflow/SBOM/pack metadata prepared; `npm install -g <tarball>` proven; see §6 for held items                                                                                                                                         |
 | Remote CI proof                    | PASS            | GitHub Actions run `37990072251` on `81908362` — success: frozen install, typecheck, build, 169/169 on ubuntu-latest, prod audit, pack sanity, SBOM. CI caught+fixed 3 real defects: bad action SHA pin, missing `contents:read`, missing rg + APFS-only test assumptions |
 | License selection                  | BLOCKED (owner) | `UNLICENSED` today; recommendation: MIT (see §6)                                                                                                                                                                                                                          |
@@ -109,6 +110,71 @@ unused — every surface is a policy-gated tool call. No findings.
 | RENDERED VERIFICATION | fences balanced, tables well-formed, all internal links resolve, strict-JSON example parses, commands verified against implementation                                                                                                                                                                                  |
 | VERDICT LEDGER        | every finding above closed with regression or doc fix; red-team R1–R7 (fabricated `git_search` message, stderr/timeout wording, stale counts) also closed                                                                                                                                                              |
 
+### 3b. Second EA pass (2026-10-09, documentation-experience mission)
+
+Re-executed the full pipeline on `7a33d99` against chassis `95d53cc`. Real
+capability execution: `humanizer` (full pass over shipped docs — remaining
+em-dashes are functional, not rhythm tells), ui-craft 1.0.0 references
+(`heuristics.md` scored critique, `copy.md` language rules,
+`state-design.md` unhappy-path doctrine applied to the developer journey,
+`review.md`/`accessibility.md` rendered checks). Audience research reused
+(no new evidence gap); positioning retained per `research/positioning.md`.
+
+**Rendered evidence**: GFM render produced by GitHub's own `/markdown` API +
+`github-markdown-css` 5.8.1, screenshotted via Playwright at 375/768/1440px
+in light and dark, persisted in `research/rendered/` (13 PNGs). Programmatic
+probe at 375px: `docOverflow` = 0 (no page-level horizontal scroll; tables
+and `pre` blocks scroll internally, which is correct GFM behavior).
+
+**First-use E2E**: tarball path executed live in an isolated dir —
+`npm pack` → `npm install -g` into a temp prefix → `init-config` → doctor
+FAILs `root.example` exactly as documented → config fixed → `doctor: ALL
+GREEN` → raw stdio JSON-RPC verified `NOT_FOUND` (absent `.env`),
+`OUTSIDE_ROOT`, `TASK_DENIED` — matching README's denial table verbatim.
+
+**Seat verdicts on `7a33d99`** (4 fresh-context, read-only, SHA-bound):
+
+- Seat A (cold developer): **SHIP**. Medium: `pnpm pack` before `pnpm build`
+  produced a distless tarball → fixed via `prepack` script + README rewording.
+- Seat B (security comprehension): **SHIP-conditional**. Mediums: git
+  timeout error codes overstated; task-spawn errors report operator argv
+  (contradicted absolute "paths scrubbed" claim); threat-model scan budget
+  stated 50 MB where default is 5 MB — all remediated in docs.
+- Seat C (doc editor): **HOLD→remediated**. High ED-1: deny list read as
+  exhaustive but is a subset → marked representative + pointed at
+  `src/policy.ts`. Mediums: mitigations table named the wrong git-config
+  control (corrected to `GIT_CONFIG_{COUNT,KEY,VALUE}`); README/OPERATIONS
+  recovery tables deduplicated; changelog `[Unreleased]`→0.1.0 attribution
+  clarified; tarball exclusion of the internal packet applied.
+- Seat D (rendered craft): **HOLD→remediated**. High F1: threat-model
+  F-round/NF-round ledgers lacked header rows and rendered as raw pipe text
+  → fixed, verified (4 tables now render). Medium F2: annotated `jsonc`
+  config block was a paste-trap → now parses once `//` comments are stripped
+  (verified programmatically).
+
+**Implementation findings logged (not fixed — outside doc-mission scope)**:
+task-spawn failure leaks the operator-configured argv path (exec.ts:75);
+`git_branches` never checks exit codes (timeout → empty result);
+`TIMEOUT` is a dead `ErrorCode` union member (paths.ts:16); config
+location-outside-roots is unenforced guidance. All four are now documented
+honestly; the first is the only one that could warrant a code fix at the
+owner's discretion.
+
+**EA-1..EA-10 gate states (final)**:
+
+| Gate                          | State | Note                                                                                                        |
+| ----------------------------- | ----- | ----------------------------------------------------------------------------------------------------------- |
+| EA-1 Audience fidelity        | PASS  | docs speak to dev/security-lead/contributor per `research/audience-corpus.md`; terminology sourced          |
+| EA-2 Positioning              | PASS  | tagline retained; differentiation evidence-backed (verified upstream issue link); no inflated claims remain |
+| EA-3 Language quality         | PASS  | humanizer + copy pass; no slop patterns; caveats preserved                                                  |
+| EA-4 Information architecture | PASS  | 13-section progressive disclosure validated by cold-developer seat                                          |
+| EA-5 Technical accuracy       | PASS  | every checkable claim traced to source across both EA passes; this round added 8 more claim corrections     |
+| EA-6 First-use usability      | PASS  | tarball E2E reproduced doc-for-doc including the documented `root.example` failure                          |
+| EA-7 Rendered craft           | PASS  | 13-screenshot bundle; tables/fences/overflow verified programmatically and visually                         |
+| EA-8 Trust & security         | PASS  | overclaims carved out or corrected; no absolute claims left that code contradicts                           |
+| EA-9 Independent review       | PASS  | 4 fresh-context seats on `7a33d99`; verdicts above                                                          |
+| EA-10 Evidence integrity      | PASS  | artifacts bound to exact SHAs; rendered bundle in `research/rendered/`                                      |
+
 ## 4. Test totals & negative coverage
 
 - 169 tests across 8 files (33 adversarial). Every remediated finding has a
@@ -142,13 +208,16 @@ host interop breadth; v2 line exists but is deliberately not adopted (see
 - `CONTRIBUTING.md` — RED-first/fail-closed/no-new-capability rules.
 - `CHANGELOG.md` — remediation round documented by finding id.
 - `.github/workflows/ci.yml` — frozen-lockfile verify pipeline; actions
-  pinned by SHA; empty `permissions:`.
+  pinned by SHA; `permissions: contents: read` (minimum for private checkout).
 - `scripts/sbom.mjs` — reproducible CycloneDX SBOM.
 - `.npmrc` — `minimum-release-age=10080` (7-day publication cooldown) +
   `save-exact`.
 - `package.json` — private, exact pins, pinned packageManager hash;
-  `files` ships `dist`, `docs`, `scripts`, and top-level docs so README
-  links resolve inside the tarball (22 files, ~51 kB).
+  `files` ships `dist`, the three public docs, `scripts`, and top-level
+  docs so README links resolve inside the tarball (21 files, ~49 kB);
+  `docs/RELEASE-PACKET.md` (this internal ledger) is deliberately excluded;
+  a `prepack` script builds `dist/` so `pnpm pack` cannot produce a
+  distless tarball.
 - `research/audience-corpus.md` + `research/positioning.md` — EA GROUND
   evidence artifacts.
 - README rewritten for accuracy post-remediation; verified claim-by-claim
@@ -183,6 +252,11 @@ registry; public npm + MCP registry listing only after owner sign-off.
 - **Limitations**: read-only V1 by design; no Windows host testing (POSIX
   path semantics + mkfifo tests are macOS/Linux-shaped); `task_run`
   executes only operator-defined argv — never free text.
+- **Logged implementation nits (docs-phase, not fixed — owner call)**:
+  `runBounded` spawn failures embed the operator-configured argv path in
+  the `INTERNAL_ERROR` message (exec.ts); `git_branches` does not check
+  exit codes (timeout → empty list); `TIMEOUT` is a dead `ErrorCode`
+  member; config location outside roots is guidance, not enforced.
 
 ## 8. Remaining owner decisions
 

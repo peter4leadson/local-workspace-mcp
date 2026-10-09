@@ -29,7 +29,7 @@ permission loop, the same loop users bypass out of fatigue
 (`--dangerously-skip-permissions`, "yes to everything"). The official
 `@modelcontextprotocol/server-filesystem` ships read **and** write tools
 with no default secrets denylist, and has already overwritten a user's
-`.env` (upstream issue #1869). Generic filesystem MCPs give a model file
+`.env` ([upstream issue #1869](https://github.com/modelcontextprotocol/servers/issues/1869)). Generic filesystem MCPs give a model file
 access; they do not give it _bounded_ access.
 
 This server moves the boundary server-side: roots, deny rules, task
@@ -45,8 +45,8 @@ content search. Building from a clone needs pnpm (`corepack enable`).
 ```sh
 # from a clone:
 pnpm install && pnpm build && npm link        # puts workspace-mcp on PATH
-# or from a release tarball (pnpm pack, or a GitHub release asset):
-npm install -g local-workspace-mcp-0.1.0.tgz
+# or build a tarball and install it globally (prepack builds dist/ for you):
+pnpm pack && npm install -g local-workspace-mcp-0.1.0.tgz
 
 workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
 $EDITOR ~/.config/local-workspace-mcp/config.json   # replace the example workspace (below)
@@ -119,32 +119,32 @@ gracefully.
 All 14 tools, annotated `readOnlyHint` where true (hosts can auto-approve
 pure reads). `task_run` is the only tool with side effects.
 
-| tool                | scope         | notes                                                         |
-| ------------------- | ------------- | ------------------------------------------------------------- |
-| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                |
-| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class           |
-| `fs_stat`           | one path      | metadata; symlink resolution disclosed                        |
-| `fs_read`           | one file      | line-range, byte-capped; binary refused                       |
-| `fs_read_many`      | batch         | per-file inline errors, total cap                             |
-| `fs_search_files`   | filenames     | glob; git file universe (honors .gitignore)                   |
-| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded |
-| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked       |
-| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted      |
-| `git_log`           | repo          | ≤100 commits                                                  |
-| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation      |
-| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)          |
-| `task_list`         | config        | task ids enabled per workspace                                |
-| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output     |
+| Tool                | Scope         | Notes                                                                                                                  |
+| ------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                                                                         |
+| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class                                                                    |
+| `fs_stat`           | one path      | metadata; symlink resolution disclosed                                                                                 |
+| `fs_read`           | one file      | line-range, byte-capped; binary refused                                                                                |
+| `fs_read_many`      | batch         | per-file inline errors, total cap                                                                                      |
+| `fs_search_files`   | filenames     | glob; git file universe where a repo exists (honors .gitignore at the repo toplevel); bounded directory walk otherwise |
+| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded                                                          |
+| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked                                                                |
+| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted                                                               |
+| `git_log`           | repo          | ≤100 commits                                                                                                           |
+| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation                                                               |
+| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)                                                                   |
+| `task_list`         | config        | task ids enabled per workspace                                                                                         |
+| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output                                                              |
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                    | Status          |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | --------------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified        |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | configured      |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | same stdio path |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified        |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified        |
+| Host                    | Mechanism                                                                                                    | Status     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ---------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | configured |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | supported  |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified   |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while
@@ -174,7 +174,8 @@ args = ["serve", "--stdio"]
 ```
 
 For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
-stdio command locally; nothing inbound ever opens on your machine.
+stdio command locally; no inbound network listener opens. (tunnel-client
+can optionally bind a loopback-only health endpoint — see OPERATIONS.)
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Permission model
@@ -184,20 +185,25 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   rejected before any syscall, and again after `realpath`. Point roots at
   the projects you actually work on; never authorize `~/` or a parent
   directory that contains things the assistant should not read.
-- **Denied by default:** `.env*` (except `.example`/`.sample`/`.template`),
-  private-key filenames, `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh`, `.aws`,
-  `.kube`, `.docker`, `.npmrc`, `.netrc`, `.pgpass`,
+- **Denied by default,** including: `.env*`/`*.env` spellings (except
+  `.env[.*].{example,sample,template}`), `.envrc`, private-key filenames,
+  `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh`, `.aws`, `.azure`, `.gnupg`,
+  `.kube`/`kubeconfig`, `.docker`, `.npmrc`, `.netrc`, `.pgpass`, `.pypirc`,
+  `.git-credentials`/`.gitconfig`, shell histories, `*.tfvars`,
   `secrets.{json,yaml,yml,toml}`/`.secrets`/`secrets.d`,
-  `*credentials*.json`, and all `.git` internals.
+  `credentials`/`service-account*.json`/`gha-creds-*.json`, and all `.git`
+  internals. Representative list — the authoritative rules are
+  `DEFAULT_DENY` in `src/policy.ts` (repository); denies are fail-closed.
 - **Name is not the only boundary:** a file containing `BEGIN … PRIVATE KEY`
   armor under a benign name is refused in reads, `git_show` blobs, and
   search previews. The scan is heuristic defense-in-depth (encoding and
   size-budget limits documented in the threat model); name/policy denies
   are the primary boundary.
 - **Git is read-only and hardened:** argv-only spawns, `--end-of-options`,
-  strict ref validation, literal pathspecs, `GIT_TERMINAL_PROMPT=0`, the
-  headline repo-config exec keys neutralized (`core.fsmonitor`,
-  `core.sshCommand`, `diff.external`, `core.hooksPath`; per-driver
+  strict ref validation, literal pathspecs, `GIT_TERMINAL_PROMPT=0`.
+  Inside allowlisted tasks the headline repo-config exec keys are pinned
+  via `GIT_CONFIG_*` overrides (`core.fsmonitor`, `core.sshCommand`,
+  `diff.external`, `core.hooksPath`; per-driver
   `diff.<name>`/`filter.<name>` hooks are a documented residual). Rename
   diffs and merge-conflict `diff --cc` blocks are policy-checked on every
   path they name.
@@ -205,15 +211,20 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   sanitized environment, per-task timeout and output caps. Operator env
   cannot inject `GIT_*`, loader, or interpreter hooks.
 - **Errors are bounded:** every failure is `CODE: message`; absolute host
-  paths are scrubbed from tool errors. `task_run` returns subprocess
+  paths are scrubbed from tool errors, except that a task-spawn failure
+  reports the operator-configured argv itself. `task_run` returns subprocess
   stdout/stderr verbatim — that output belongs to commands the operator
   allowlisted.
 
 Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
 `RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`,
-`WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `CONFIG_ERROR`,
-`INTERNAL_ERROR`. `task_run` and search timeouts return `timedOut:true`
-in the result; a git command timeout surfaces as `INTERNAL_ERROR`.
+`WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `INTERNAL_ERROR`, plus
+`CONFIG_ERROR` at config load/startup. `task_run` and search timeouts
+return `timedOut:true` in the result. Git-command failures surface as
+`INVALID_ARGUMENT` (`git_diff`/`git_log`/`git_show` map non-zero exits,
+including timeout kills) or `INTERNAL_ERROR` (`git_status`); a timeout on
+repo detection reads as `repo:false`, and `git_branches` tolerates a
+non-zero exit with an empty list.
 
 ## What it will not do
 
@@ -229,8 +240,8 @@ Ports-and-adapters, one implementation, one transport:
 
 ```text
 AI host ── stdio JSON-RPC ──▶ workspace-mcp serve --stdio
-                                 │
-  config.ts   trust root: operator config outside every watched root
+
+  config.ts   trust root: operator config (keep it outside watched roots)
   paths.ts    lexical + realpath containment, bounded error mapping
   policy.ts   default-deny rules + validated operator globs
   fsOps.ts    bounded reads/searches (ripgrep --json, structured parsing)
@@ -240,8 +251,8 @@ AI host ── stdio JSON-RPC ──▶ workspace-mcp serve --stdio
   audit.ts    metadata-only JSONL; refuses symlinked targets
 ```
 
-The full boundary analysis, findings ledger (33-case adversarial suite),
-and documented residual risks live in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Disclosure
+The full boundary analysis, the 30-finding adversarial ledger, the 33-case
+regression suite, and documented residual risks live in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Disclosure
 policy in [SECURITY.md](SECURITY.md).
 
 ## Configuration reference
@@ -251,28 +262,30 @@ its directory is group/world-writable, or the path is a symlink.
 
 ```jsonc
 // annotated for reading — the parser is strict JSON;
-// start from `init-config` output or strip comments/trailing commas
+// this block is documentation, not a template. Start from `init-config`
+// output, or strip the // comments (the JSON itself is otherwise valid).
 {
   "version": 1,
   "workspaces": {
     "myproj": {
       "path": "/abs/path", // required
       "description": "…",
-      "tasks": ["typecheck"], // ids the caller may run here
-    },
+      "tasks": ["typecheck"] // ids the caller may run here
+    }
   },
   "tasks": {
     "typecheck": {
       "command": ["pnpm", "typecheck"], // argv only; never a command string
       "cwd": "subdir-inside-root", // optional; contained to the root
       "timeoutMs": 180000, // 1s..300s; 300s is a hard cap
-      "env": { "PATH": "/opt/node/bin:${PATH}" }, // ${VAR} expands vs base env
-    },
+      "env": { "PATH": "/opt/node/bin:${PATH}" } // ${VAR} expands vs base env
+    }
   },
-  "deny": ["**/extra-secret/**"], // appended to built-in rules; malformed
-  // patterns fail config load, fail-closed
+  "deny": ["**/extra-secret/**"], // appended to built-in rules; evaluated
+  // BEFORE the template allowlist, so an operator can re-deny
+  // .env.example; malformed patterns fail config load, fail-closed
   "auditLog": "/abs/path.jsonl", // optional; defaults next to the config
-  "limits": {}, // byte/line/count caps
+  "limits": {} // byte/line/count caps
 }
 ```
 
@@ -329,7 +342,7 @@ pnpm test                    # 169 vitest cases incl. 33-case adversarial suite
 pnpm typecheck && pnpm build
 workspace-mcp doctor         # deterministic diagnostics
 scripts/inspector-smoke.sh <workspace-id>   # 17-check MCP Inspector battery
-pnpm audit                   # dependency audit (last run: clean)
+pnpm audit --prod            # dependency audit
 ```
 
 ## Contributing, security, license

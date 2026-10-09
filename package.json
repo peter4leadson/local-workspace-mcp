@@ -13,7 +13,9 @@
   },
   "files": [
     "dist",
-    "docs",
+    "docs/THREAT-MODEL.md",
+    "docs/OPERATIONS.md",
+    "docs/RESEARCH.md",
     "scripts",
     "README.md",
     "SECURITY.md",
@@ -22,6 +24,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "doctor": "node dist/cli.js doctor",

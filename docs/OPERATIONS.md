@@ -24,20 +24,19 @@ server still starts — that workspace reports `WORKSPACE_UNAVAILABLE`.
 
 - Operational: single line to **stderr** on startup (stdout is the protocol).
 - Audit: `~/.config/local-workspace-mcp/audit.jsonl` — one JSON object per
-  call: `ts, tool, workspace, target(rel), ok, code, durationMs, truncated`.
-  No contents, no absolute paths, no env. Rotate by deleting/truncating the
-  file; it is append-only metadata.
+  call: `ts, tool, workspace, target, ok, code, durationMs, truncated`.
+  `target` echoes the caller-supplied path as given (an in-root absolute
+  path argument is logged verbatim); the server never writes file contents,
+  env values, or server-resolved absolute paths. Best-effort: append
+  failures are dropped rather than failing calls. Rotate by
+  deleting/truncating the file; it is append-only metadata.
 
 ## Recovery (boring on purpose)
 
-| Symptom                          | Action                                                                                  |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| Claude shows server disconnected | `workspace-mcp doctor` — fix first FAIL. Then `claude mcp list` re-check.               |
-| `WORKSPACE_UNAVAILABLE`          | root moved/deleted — fix path in config or remove workspace entry.                      |
-| `TASK_DENIED`                    | `task_list` — task not enabled for that workspace; edit config tasks.                   |
-| Task executable missing          | `doctor` flags `task.<id>.executable` — install tool or fix PATH env in task def.       |
-| Search returns nothing           | ensure `rg` is on the launching PATH (`doctor` checks sanitized PATH).                  |
-| Config broken                    | `doctor` reports `config.parse` FAIL — invalid JSON or a schema error naming the field. |
+The canonical symptom → action table lives in [README.md §Troubleshooting](../README.md#troubleshooting)
+(it also covers install and host-registration failures). The two rules that
+resolve almost everything: `workspace-mcp doctor` names the first failing
+check, and hosts spawn with a minimal PATH — use the absolute binary path.
 
 No state exists outside config + audit log — deleting both and re-running
 `init-config` is a full reset.
@@ -48,6 +47,9 @@ No state exists outside config + audit log — deleting both and re-running
 pnpm install && pnpm build && pnpm test && workspace-mcp doctor
 ```
 
+For tarball installs, `npm install -g <new>.tgz` over the existing install
+followed by `workspace-mcp doctor` is the equivalent upgrade.
+
 The installed launcher path is `$(npm prefix -g)/bin/workspace-mcp`
 (`which workspace-mcp` confirms it); it is stable across rebuilds and
 hosts pick up the new build on next spawn. Server name/version come from MCP
@@ -57,8 +59,9 @@ a frozen tool snapshot until refreshed.
 
 ## OpenAI Secure MCP Tunnel (ChatGPT path)
 
-- Supervision: `tunnel-client runtimes connect` (native managed runtime —
-  per OpenAI guidance, do not supervise with nohup/disown). Status:
+- Supervision: `tunnel-client runtimes connect <alias>` (native managed
+  runtime — per OpenAI guidance, do not supervise with nohup/disown;
+  `<alias>` names the configured tunnel profile). Status:
   `tunnel-client runtimes status <alias> --json` (expect
   `process_running/healthy/ready`).
 - Health surfaces: `/healthz` `/readyz` `/metrics` `/ui` on the health
@@ -69,3 +72,7 @@ a frozen tool snapshot until refreshed.
   `runtimes connect` again; the MCP server itself needs no restart (it is
   spawned per request-path by tunnel-client).
 - Keep the daemon running for connector discovery and every ChatGPT call.
+
+---
+
+See also: [README](../README.md) · [SECURITY.md](../SECURITY.md) · [docs/THREAT-MODEL.md](THREAT-MODEL.md)

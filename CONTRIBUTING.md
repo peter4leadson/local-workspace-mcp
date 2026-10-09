@@ -1,5 +1,8 @@
 # Contributing
 
+Prerequisites: Node ≥20, `git`, ripgrep (`rg`), and pnpm 10.18.x
+(`corepack enable` provides it).
+
 ## Workflow
 
 ```sh
@@ -16,6 +19,11 @@ The Inspector battery and `doctor` need a configured workspace first
 ```sh
 scripts/inspector-smoke.sh <workspace-id>   # MCP protocol battery
 ```
+
+While the repository is private, changes arrive as commits on the release
+branch by the owner. Once public: conventional-commit PRs, green `pnpm test`
+
+- `pnpm typecheck` required.
 
 ## Rules that are not negotiable
 

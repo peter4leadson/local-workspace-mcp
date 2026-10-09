@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased] — corporate-readiness candidate
 
+The entries below are cumulative remediations that will ship **as** the
+0.1.0 private release candidate; the `[0.1.0]` section at the bottom
+describes the pre-remediation baseline. The `version` field stays `0.1.0`
+until the owner cuts the release.
+
 ### Security (adversarial review round 2026-10-09, `tests/adversarial.test.ts`)
 
 - **Fixed HIGH** — `git_diff`/`git_show` leaked denied-file content through
