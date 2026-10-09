@@ -30,6 +30,10 @@ permissions:
   contents: read
   id-token: write # OIDC token for npm trusted publishing
 
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -38,6 +42,7 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+          fetch-tags: true # dispatch runs on the default branch — tags must be fetched for the consistency check
       - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
         with:
           run_install: false
@@ -46,9 +51,13 @@ jobs:
           node-version: "24"
           cache: pnpm
       - name: npm CLI with OIDC + staged publishing (>=11.15)
-        run: npm install -g npm@latest && npm --version
+        run: |
+          # repo .npmrc sets minimum-release-age; bypass it for the tool install itself
+          npm_config_minimum_release_age=0 npm install -g npm@^11.15.0
+          npm --version
+          node -e "const v=require('child_process').execSync('npm --version').toString().trim(); const [a,b]=v.split('.').map(Number); if(a<11||(a===11&&b<15)) { console.error('npm '+v+' < 11.15'); process.exit(1) }"
       - name: Install ripgrep (fs_search_content dependency)
-        run: sudo apt-get install -y ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
       - name: Typecheck
@@ -69,7 +78,7 @@ jobs:
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          REF_NAME: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
           PKG=$(node -p "require('./package.json').version")
@@ -78,14 +87,19 @@ jobs:
           [ -n "$EXPECT" ] || { echo "no version resolved"; exit 1; }
           [ "$PKG" = "$EXPECT" ] || { echo "package.json version $PKG != release version $EXPECT"; exit 1; }
           # Tag must exist and point at this commit
-          git rev-parse "v$EXPECT^{commit}" >/dev/null 2>&1 || { echo "tag v$EXPECT missing from checkout"; exit 1; }
-          [ "$(git rev-parse "v$EXPECT^{commit}")" = "$GITHUB_SHA" ] || { echo "tag v$EXPECT does not point at $GITHUB_SHA"; exit 1; }
+          TAGREF="${RELEASE_TAG:-v$EXPECT}"
+          git rev-parse "$TAGREF^{commit}" >/dev/null 2>&1 || { echo "tag $TAGREF missing from checkout"; exit 1; }
+          [ "$(git rev-parse "$TAGREF^{commit}")" = "$GITHUB_SHA" ] || { echo "tag $TAGREF does not point at $GITHUB_SHA"; exit 1; }
           # Refuse to republish an existing version
           if npm view "local-workspace-mcp@$EXPECT" version >/dev/null 2>&1; then
             echo "local-workspace-mcp@$EXPECT already published — refusing duplicate"; exit 1;
           fi
-          echo "version $EXPECT: consistent, tagged, unpublished"
+          # Prereleases stage onto dist-tag `next`, never `latest`
+          DIST_TAG=latest
+          [ "$IS_PRERELEASE" = "true" ] && DIST_TAG=next
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+          echo "version $EXPECT: consistent, tagged, unpublished (dist-tag $DIST_TAG)"
       - name: Stage publish to npm (OIDC, owner approves on npmjs.com)
-        run: npm stage publish --access public
+        run: npm stage publish --access public --tag "$DIST_TAG"
         # No --provenance flag: npm attaches build provenance automatically
         # when authenticating via OIDC trusted publishing.
