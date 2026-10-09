@@ -169,11 +169,16 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   `*credentials*.json`, and all `.git` internals.
 - **Name is not the only boundary:** a file containing `BEGIN … PRIVATE KEY`
   armor under a benign name is refused in reads, `git_show` blobs, and
-  search previews.
+  search previews. The scan is heuristic defense-in-depth (encoding and
+  size-budget limits documented in the threat model); name/policy denies
+  are the primary boundary.
 - **Git is read-only and hardened:** argv-only spawns, `--end-of-options`,
-  strict ref validation, literal pathspecs, `GIT_TERMINAL_PROMPT=0`, repo
-  config hooks neutralized. Rename diffs and merge-conflict `diff --cc`
-  blocks are policy-checked on every path they name.
+  strict ref validation, literal pathspecs, `GIT_TERMINAL_PROMPT=0`, the
+  headline repo-config exec keys neutralized (`core.fsmonitor`,
+  `core.sshCommand`, `diff.external`, `core.hooksPath`; per-driver
+  `diff.<name>`/`filter.<name>` hooks are a documented residual). Rename
+  diffs and merge-conflict `diff --cc` blocks are policy-checked on every
+  path they name.
 - **Tasks are declared, not typed:** argv arrays in config, `shell:false`,
   sanitized environment, per-task timeout and output caps. Operator env
   cannot inject `GIT_*`, loader, or interpreter hooks.
