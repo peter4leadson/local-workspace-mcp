@@ -82,10 +82,20 @@ Post-remediation critical/high blockers: **none known**.
 ## 3a. Experience assurance (Golden Chassis EA pipeline)
 
 Executed per the accepted method; capabilities invoked: ECC
-`market-research`/`competitive-platform-analysis` (pinned v2.2.1
-`5064474`), ui-craft `clarify`/`heuristic`/`critique`/`unhappy`/`audit`/`harden`
-(1.0.0), standalone `humanizer`, plus clean-context subagents as the
-qualified substitute for capability execution.
+`market-research`/`competitive-platform-analysis`/`mcp-server-patterns`
+(pinned v2.2.1 `5064474`), ui-craft
+`clarify`/`heuristic`/`critique`/`unhappy`/`audit`/`harden` (1.0.0),
+standalone `humanizer`, plus clean-context subagents as the qualified
+substitute for capability execution.
+
+`mcp-server-patterns` checklist vs implementation: `registerTool` API for
+all 14 tools ✓; zod schema-first inputs ✓; transport separation
+(`createServer` returns `McpServer`, `cli.ts` attaches
+`StdioServerTransport`) ✓; stdio-only transport for local hosts ✓;
+structured `CODE: message` errors, no raw stack traces ✓; honest
+annotations (`task_run` non-idempotent/non-readOnly) ✓; SDK exact-pinned
+(`@modelcontextprotocol/sdk@1.32.1`) ✓; resources/prompts deliberately
+unused — every surface is a policy-gated tool call. No findings.
 
 | Phase                 | Result                                                                                                                                                                                                                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
