@@ -1,6 +1,6 @@
 # Release decision pack — local-workspace-mcp
 
-Status: HOLD — all provable technical gates PASS at `a3fe113`; pending owner decisions only.
+Status: HOLD — security assurance SHIP at `a3fe113` (scoped verdict, preserved); experience assurance, onboarding proof, and non-security red-team gates still in progress.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |

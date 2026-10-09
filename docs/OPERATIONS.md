@@ -28,14 +28,14 @@ server still starts — that workspace reports `WORKSPACE_UNAVAILABLE`.
 
 ## Recovery (boring on purpose)
 
-| Symptom | Action |
-|---|---|
-| Claude shows server disconnected | `workspace-mcp doctor` — fix first FAIL. Then `claude mcp list` re-check. |
-| `WORKSPACE_UNAVAILABLE` | root moved/deleted — fix path in config or remove workspace entry. |
-| `TASK_DENIED` | `task_list` — task not enabled for that workspace; edit config tasks. |
-| Task executable missing | `doctor` flags `task.<id>.executable` — install tool or fix PATH env in task def. |
-| Search returns nothing | ensure `rg` is on the launching PATH (`doctor` checks sanitized PATH). |
-| Config broken | `doctor` reports `config.parse` FAIL with the zod error. |
+| Symptom                          | Action                                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| Claude shows server disconnected | `workspace-mcp doctor` — fix first FAIL. Then `claude mcp list` re-check.               |
+| `WORKSPACE_UNAVAILABLE`          | root moved/deleted — fix path in config or remove workspace entry.                      |
+| `TASK_DENIED`                    | `task_list` — task not enabled for that workspace; edit config tasks.                   |
+| Task executable missing          | `doctor` flags `task.<id>.executable` — install tool or fix PATH env in task def.       |
+| Search returns nothing           | ensure `rg` is on the launching PATH (`doctor` checks sanitized PATH).                  |
+| Config broken                    | `doctor` reports `config.parse` FAIL — invalid JSON or a schema error naming the field. |
 
 No state exists outside config + audit log — deleting both and re-running
 `init-config` is a full reset.
@@ -46,7 +46,8 @@ No state exists outside config + audit log — deleting both and re-running
 pnpm install && pnpm build && pnpm test && workspace-mcp doctor
 ```
 
-The launcher path (`~/.local/bin/workspace-mcp`) is stable across rebuilds;
+The installed launcher path is `$(npm prefix -g)/bin/workspace-mcp`
+(`which workspace-mcp` confirms it); it is stable across rebuilds and
 hosts pick up the new build on next spawn. Server name/version come from MCP
 `initialize` (`local-workspace-mcp 0.1.0`, SDK v1 line, spec ≤2025-11-25).
 Breaking tool-schema changes must bump the minor version — ChatGPT can retain

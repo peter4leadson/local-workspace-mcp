@@ -31,6 +31,8 @@ export async function runDoctor(configPath = defaultConfigPath()): Promise<{ ok:
   const push = (name: string, ok: boolean, detail?: string) => checks.push({ name, ok, ...(detail ? { detail } : {}) });
 
   push("build", true, `${SERVER_NAME} ${SERVER_VERSION} on node ${process.version}`);
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  push("node.version", nodeMajor >= 20, `${process.version} (requires >=20)`);
 
   // config parse
   let cfg;

@@ -35,7 +35,7 @@ check "annotations present" "$TLIST" "readOnlyHint"
 echo "== happy path =="
 ROOTS=$(call workspace_roots)
 check "workspace_roots lists $WS" "$ROOTS" "\"$WS\""
-check "no absolute host path leaked" "$(echo "$ROOTS" | grep -c '/Users/petercbennett')" "0"
+check "no absolute host path leaked" "$(echo "$ROOTS" | grep -cF "$HOME")" "0"
 
 LIST=$(call fs_list --tool-arg workspace="$WS")
 check "fs_list returns entries" "$LIST" '"entries"'

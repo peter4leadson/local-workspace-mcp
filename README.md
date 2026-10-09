@@ -1,186 +1,316 @@
 # local-workspace-mcp
 
-Read-oriented, host-neutral [MCP](https://modelcontextprotocol.io) server that gives
-authorized AI hosts — Claude Code, Claude Desktop, and ChatGPT via the official
-OpenAI Secure MCP Tunnel — bounded access to Peter's **live local engineering
-workspaces**, including uncommitted working-tree state, without GitHub sync and
-without any inbound network listener.
+Your AI assistant needs context. It does not need unrestricted access.
 
-V1 is read + bounded named-task execution only. There is no write/edit/delete
-surface and no arbitrary-shell primitive.
+A read-oriented MCP server for local workspaces. Write, delete, and
+arbitrary-shell tools do not exist in it. Not gated or disabled: absent. Every
+filesystem path is checked against operator-authorized roots and a
+default-deny list for secrets, `.env` files, private keys, and `.git`
+internals. Git read tools and operator-declared named tasks provide
+bounded capability without giving the model a shell.
 
-## Architecture
+- **14 tools** over stdio JSON-RPC: bounded filesystem reads/searches,
+  read-only git (status/diff/log/show/branches), and `task_run` for
+  explicitly allowlisted commands.
+- **One transport:** each MCP host spawns `workspace-mcp serve --stdio`.
+  No inbound listener, no daemon, no network access at runtime.
+- **Honest scope:** `task_run` executes real commands as your user. The
+  allowlist bounds _what can be invoked_, not what invoked code can do.
+  It is not a sandbox.
 
-Ports-and-adapters, one implementation, one transport:
+Evaluating this for team use? Start at [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)
+and [SECURITY.md](SECURITY.md).
 
-```
-AI host (Claude Code / Claude Desktop / ChatGPT)
-        │  stdio JSON-RPC (spawned per host, no listener)
-        ▼
-workspace-mcp serve --stdio          ← adapter: @modelcontextprotocol/sdk v1
-        │
-        ├── config.ts   operator config (outside any watched repo)
-        ├── paths.ts    containment: lexical → realpath → deny policy
-        ├── policy.ts   sensitive-file denylist (.env, keys, creds, .git/**)
-        ├── fsOps.ts    fs_* tools (rg-backed content search)
-        ├── git.ts      git_* tools (argv spawn, --end-of-options, strict refs)
-        ├── tasks.ts    task_list/task_run (allowlisted argv, sanitized env)
-        ├── audit.ts    metadata-only JSONL audit
-        └── doctor      deterministic diagnostics (no phone-home)
-```
+## The problem
 
-Filesystem/Git/domain behavior is the core; the MCP transport is the adapter.
-Nothing in the core depends on a specific host or tunnel implementation.
+Hosts' built-in file tools are convenient but live in the client's
+permission loop, the same loop users bypass out of fatigue
+(`--dangerously-skip-permissions`, "yes to everything"). The official
+`@modelcontextprotocol/server-filesystem` ships read **and** write tools
+with no default secrets denylist, and has already overwritten a user's
+`.env` (upstream issue #1869). Generic filesystem MCPs give a model file
+access; they do not give it _bounded_ access.
 
-## Install
+This server moves the boundary server-side: roots, deny rules, task
+allowlists, and audit live in an operator config that repository content
+cannot widen. A compromised or bypassed prompt loop cannot invoke a tool
+that does not exist.
+
+## Quick start
+
+Requires Node ≥ 20 and, for content search, ripgrep (`rg`) on PATH.
 
 ```sh
-pnpm install && pnpm build
-install -m 755 dist/cli.js /usr/local/bin/workspace-mcp   # or a launcher shim
-workspace-mcp init-config                                  # writes ~/.config/local-workspace-mcp/config.json
-# edit config.json — add your workspace roots and permitted named tasks
-workspace-mcp doctor                                       # must be ALL GREEN
+# from a clone:
+pnpm install && pnpm build && npm link        # puts workspace-mcp on PATH
+# or from a release tarball (pnpm pack, or a GitHub release asset):
+npm install -g local-workspace-mcp-0.1.0.tgz
+
+workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
+$EDITOR ~/.config/local-workspace-mcp/config.json   # add a workspace root (below)
+workspace-mcp doctor          # must print "doctor: ALL GREEN" (use --json for CI)
 ```
 
-The launcher used on this machine: `~/.local/bin/workspace-mcp` → absolute
-`node` + `dist/cli.js`. No `npx` network resolution at runtime.
+Minimal working config (strict JSON — no comments or trailing commas):
 
-## Configuration
-
-`~/.config/local-workspace-mcp/config.json` (mode 600, lives outside watched
-repos — repository content cannot widen policy):
-
-```jsonc
+```json
 {
   "version": 1,
   "workspaces": {
-    "onramp": {
-      "path": "/abs/path",
-      "description": "…",
-      "tasks": ["typecheck"],
-    },
+    "myproj": { "path": "/absolute/path/to/repo", "tasks": [] }
   },
-  "tasks": {
-    // argv arrays only; the caller picks a task id, never command text.
-    "typecheck": {
-      "command": ["pnpm", "typecheck"],
-      "timeoutMs": 180000,
-      "env": { "PATH": "/opt/node24/bin:${PATH}" },
-    },
-  },
-  "deny": ["**/extra-secret/**"], // appended to the built-in deny rules
-  "limits": {}, // see src/config.ts for all knobs
+  "tasks": {},
+  "deny": []
 }
 ```
 
-`WORKSPACE_MCP_CONFIG` overrides the config path.
+Then connect a host (below), confirm it registered (`claude mcp list`,
+`/mcp`, or your host's equivalent), and ask: _"use workspace_roots, then
+fs_list on myproj"_. First useful call sequence: `fs_list` → `git_status`
+→ `git_diff` on uncommitted work, where a chat client otherwise
+has no eyes.
 
-## Tool contract (14 tools)
-
-| tool                | purpose                                                            | notes                                             |
-| ------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
-| `workspace_roots`   | list authorized workspace ids + availability                       | no host paths leaked                              |
-| `fs_list`           | bounded non-recursive listing, paginated                           | denied entries flagged                            |
-| `fs_stat`           | metadata                                                           | symlink resolution visible                        |
-| `fs_read`           | line-range text read                                               | binary refused, bounded bytes/lines               |
-| `fs_read_many`      | batch reads                                                        | per-file inline errors, total cap                 |
-| `fs_search_files`   | filename glob search                                               | git file universe (honors .gitignore)             |
-| `fs_search_content` | literal/regex content search                                       | ripgrep backend, time/count bounded               |
-| `git_status`        | branch, HEAD, staged/modified/deleted/renamed/untracked/conflicted | the uncommitted-truth tool                        |
-| `git_diff`          | worktree/staged/ref diff, stat mode                                | bounded output                                    |
-| `git_log`           | bounded history (≤100)                                             |                                                   |
-| `git_show`          | commit or `ref:path` object                                        | strict ref validation                             |
-| `git_branches`      | branches, upstreams, worktrees                                     | worktree host paths redacted                      |
-| `task_list`         | permitted named tasks per workspace                                |                                                   |
-| `task_run`          | execute allowlisted argv task                                      | `shell:false`, sanitized env, timeout/output caps |
-
-Errors are explicit `CODE: message` (`ACCESS_DENIED`, `OUTSIDE_ROOT`,
-`NOT_FOUND`, `TASK_DENIED`, `RESOURCE_LIMIT`, `BINARY_FILE`, `TIMEOUT`,
-`INVALID_ARGUMENT`, `WORKSPACE_UNAVAILABLE`, `UNKNOWN_WORKSPACE`).
-
-## Claude Code
+## Usage examples
 
 ```sh
-claude mcp add local-workspace --scope user -- ~/.local/bin/workspace-mcp serve --stdio
-claude mcp list      # shows ✔ Connected
+# what the assistant can ask for
+workspace_roots                        # authorized workspace ids, no host paths
+fs_list   {workspace:"myproj"}
+fs_read   {workspace:"myproj", path:"src/index.ts", startLine:1, maxLines:120}
+fs_search_content {workspace:"myproj", query:"TODO"}        # literal; regex:true for rg syntax
+git_status {workspace:"myproj"}        # branch, HEAD, uncommitted truth
+git_diff  {workspace:"myproj"}         # worktree diff, bounded output
+git_show  {workspace:"myproj", spec:"HEAD"}
+task_list {workspace:"myproj"}
+task_run  {workspace:"myproj", taskId:"typecheck"}
 ```
 
-## Claude Desktop
+Denied behavior is explicit, never silent:
 
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
+```text
+fs_read {path:".env"}              → ACCESS_DENIED
+fs_read {path:"../../etc/passwd"}  → OUTSIDE_ROOT
+task_run {taskId:"nuke"}           → TASK_DENIED    (valid id, not enabled)
+task_run {taskId:"rm -rf /"}       → INVALID_ARGUMENT (malformed task id)
+git_show {spec:"--exec"}           → INVALID_ARGUMENT
+```
+
+Denial codes are the policy working as intended, not errors to report;
+widening access happens only in the operator config. Timeout and output
+limits return `timedOut:true`/`truncated:true` in a normal result rather
+than an error. `INTERNAL_ERROR` covers spawn/tool failures and should not
+appear in healthy use; `git_*` on a non-git root returns `{repo:false}`
+gracefully.
+
+## Tool surface
+
+All 14 tools, annotated `readOnlyHint` where true (hosts can auto-approve
+pure reads). `task_run` is the only tool with side effects.
+
+| tool                | scope         | notes                                                         |
+| ------------------- | ------------- | ------------------------------------------------------------- |
+| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                |
+| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class           |
+| `fs_stat`           | one path      | metadata; symlink resolution disclosed                        |
+| `fs_read`           | one file      | line-range, byte-capped; binary refused                       |
+| `fs_read_many`      | batch         | per-file inline errors, total cap                             |
+| `fs_search_files`   | filenames     | glob; git file universe (honors .gitignore)                   |
+| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded |
+| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked       |
+| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted      |
+| `git_log`           | repo          | ≤100 commits                                                  |
+| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation      |
+| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)          |
+| `task_list`         | config        | task ids enabled per workspace                                |
+| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output     |
+
+## Supported hosts
+
+| Host                    | Mechanism                                                                                                    | Status          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ | --------------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified        |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | verified        |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | same stdio path |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified        |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified        |
+
+GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
+not your shell's. If a host reports ENOENT or stays disconnected while
+`doctor` is green, the binary is not on the host's PATH. Use the absolute
+path (`which workspace-mcp`) as the command and check the host's MCP log.
+
+Claude Desktop example:
 
 ```json
 {
   "mcpServers": {
     "local-workspace": {
-      "command": "/Users/…/.local/bin/workspace-mcp",
+      "command": "/absolute/path/to/workspace-mcp",
       "args": ["serve", "--stdio"]
     }
   }
 }
 ```
 
-Restart the app to pick it up.
+For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
+stdio command locally; nothing inbound ever opens on your machine.
+Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-## ChatGPT (OpenAI Secure MCP Tunnel)
+## Permission model
 
-The Mac never accepts inbound MCP connections. `tunnel-client` (official,
-`github.com/openai/tunnel-client`) keeps an outbound-only HTTPS path to OpenAI
-and forwards MCP requests to the local stdio command.
+- **Roots are explicit.** Nothing outside `workspaces[].path` is reachable;
+  `~`, control characters, Windows drive paths, and `..` traversal are
+  rejected before any syscall, and again after `realpath`. Point roots at
+  the projects you actually work on; never authorize `~/` or a parent
+  directory that contains things the assistant should not read.
+- **Denied by default:** `.env*` (except `.example`/`.sample`/`.template`),
+  private-key filenames, `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh`, `.aws`,
+  `.kube`, `.docker`, `.npmrc`, `.netrc`, `.pgpass`, `secrets.*`,
+  `*credentials*.json`, and all `.git` internals.
+- **Name is not the only boundary:** a file containing `BEGIN … PRIVATE KEY`
+  armor under a benign name is refused in reads, `git_show` blobs, and
+  search previews.
+- **Git is read-only and hardened:** argv-only spawns, `--end-of-options`,
+  strict ref validation, literal pathspecs, `GIT_TERMINAL_PROMPT=0`, repo
+  config hooks neutralized. Rename diffs and merge-conflict `diff --cc`
+  blocks are policy-checked on every path they name.
+- **Tasks are declared, not typed:** argv arrays in config, `shell:false`,
+  sanitized environment, per-task timeout and output caps. Operator env
+  cannot inject `GIT_*`, loader, or interpreter hooks.
+- **Errors are bounded:** every failure is `CODE: message`; absolute host
+  paths and tool stderr never reach a response.
 
-```sh
-# 1. Create a tunnel + runtime API key in Platform org settings (human step):
-#    https://platform.openai.com/settings/organization/tunnels  → tunnel_<id>
-#    https://platform.openai.com/settings/organization/api-keys → Tunnels Read+Use
-export CONTROL_PLANE_API_KEY=<runtime key>   # or use a file: ref
-tunnel-client init --profile local-workspace --tunnel-id <id> \
-  --mcp-command "$HOME/.local/bin/workspace-mcp serve --stdio"
-tunnel-client doctor --profile local-workspace --explain      # must be PASS
-tunnel-client runtimes connect …                              # supervised local runtime
-# 2. ChatGPT → Settings → Connectors → attach tunnel (keep daemon running)
+Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
+`RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`,
+`WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `CONFIG_ERROR`,
+`INTERNAL_ERROR`. Timeouts are reported in the result (`timedOut:true`),
+not as error codes.
+
+## What it will not do
+
+No writes, edits, deletes, renames, or file creation. No shell. No git
+mutations (`commit`, `push`, `clean` …). No network listener. No
+repo-controlled configuration. Tasks execute only what the operator
+pre-declared, and even those run as your user with real side effects,
+so keep the allowlist tight and prefer read-only commands.
+
+## Security architecture
+
+Ports-and-adapters, one implementation, one transport:
+
+```text
+AI host ── stdio JSON-RPC ──▶ workspace-mcp serve --stdio
+                                 │
+  config.ts   trust root: operator config outside every watched root
+  paths.ts    lexical + realpath containment, bounded error mapping
+  policy.ts   default-deny rules + validated operator globs
+  fsOps.ts    bounded reads/searches (ripgrep --json, structured parsing)
+  git.ts      read-only git, strict refs, diff redaction, object-type gates
+  tasks.ts    allowlisted argv only, process-group timeouts
+  exec.ts     sanitized + git-hardened subprocess environments
+  audit.ts    metadata-only JSONL; refuses symlinked targets
 ```
 
-`doctor --explain` fails closed on exactly what is missing (`tunnel_id`,
-runtime key). See `docs/OPERATIONS.md` for the recovery procedure.
+The full boundary analysis, findings ledger (33-case adversarial suite),
+and documented residual risks live in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Disclosure
+policy in [SECURITY.md](SECURITY.md).
 
-## Security model (summary — full doc in docs/THREAT-MODEL.md)
+## Configuration reference
 
-- Every fs path: input hygiene → lexical containment → canonical realpath
-  containment (ancestor-walk for missing leaves) → deny policy on both lexical
-  and resolved relative paths. `~`, NUL/control chars, Windows drives rejected.
-- Deny-by-default for `.env*` (except `*.example/.sample/.template`), private
-  keys, `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh/.aws/.kube/.docker` credential
-  trees, `.npmrc/.netrc/.pgpass`, `secrets.*`, `*credentials*.json`, `.git/**`.
-- Content-level key detection: a file carrying `BEGIN ... PRIVATE KEY`
-  material under a benign name is refused in `fs_read`, `git_show` blobs, and
-  search previews — the name is not the only boundary.
-- Git: argv-only spawns, `--end-of-options`, strict ref allowlist,
-  `GIT_TERMINAL_PROMPT=0`, sanitized env, hostile `core.fsmonitor`/
-  external-diff config neutralized. Diff redaction checks BOTH sides of a
-  rename — `a/.env → b/innocent.ts` cannot launder denied content — and
-  merge-conflict `diff --cc` blocks are policy-checked too. `git_show` only
-  displays commit/tag objects by bare ref (no raw blob/tree by SHA).
-- Tasks run under the same GIT\_\* hardening, so an allowlisted task invoking
-  `git` cannot execute repo-local config hooks.
-- Search: `rg --json` structured output, so crafted filenames (`:`- or
-  newline-containing directories) cannot spoof match attribution; denied
-  files produce no match records and no previews.
-- Errors are bounded `CODE: message` results — raw errno paths, absolute host
-  paths, and rg stderr are scrubbed before they can reach a tool response.
-- Tasks: allowlisted argv per workspace, `shell:false`, env allowlist,
-  per-task timeout ≤5min hard cap, output cap.
-- Audit: JSONL metadata only (tool, workspace, rel target, code, ms); refuses
-  to write through a symlinked log path. No contents, no abs paths, no env.
-- Config is the trust root: `mode 0600`-class permission enforcement, and
-  operator deny globs are validated at startup (a malformed rule that would
-  silently never match fails the load instead).
-- No write tools, no exec primitive, no inbound listener — ever, in V1.
+`~/.config/local-workspace-mcp/config.json`; refused at load if the file or
+its directory is group/world-writable, or the path is a symlink.
 
-## Verification
+```jsonc
+// annotated for reading — the parser is strict JSON;
+// start from `init-config` output or strip comments/trailing commas
+{
+  "version": 1,
+  "workspaces": {
+    "myproj": {
+      "path": "/abs/path", // required
+      "description": "…",
+      "tasks": ["typecheck"], // ids the caller may run here
+    },
+  },
+  "tasks": {
+    "typecheck": {
+      "command": ["pnpm", "typecheck"], // argv only; never a command string
+      "cwd": "subdir-inside-root", // optional; contained to the root
+      "timeoutMs": 180000, // 1s..300s; 300s is a hard cap
+      "env": { "PATH": "/opt/node/bin:${PATH}" }, // ${VAR} expands vs base env
+    },
+  },
+  "deny": ["**/extra-secret/**"], // appended to built-in rules; malformed
+  // patterns fail config load, fail-closed
+  "auditLog": "/abs/path.jsonl", // optional; defaults next to the config
+  "limits": {}, // byte/line/count caps
+}
+```
+
+Common `limits` keys (key: default): `maxReadFileBytes`: 5 MB file-size
+ceiling for reads, `defaultReadBytes`: 64 KiB per read,
+`maxSearchResults`: 200, `searchDeadlineMs`: 20 s, `gitTimeoutMs`: 15 s,
+`maxTaskOutputBytes`: 64 KiB, `walkEntryCap`/`walkDepthCap`: 50k entries /
+20 deep. Full schema with bounds: `src/config.ts`. Callers can pass
+`timeoutMs` to `task_run` to shorten a task's timeout; it can never
+exceed the configured value or the 300 s hard cap.
+
+Overrides: `WORKSPACE_MCP_CONFIG` (config file), `WORKSPACE_MCP_CONFIG_DIR`
+(config dir + audit log location), `workspace-mcp serve --config <path>`
+(CLI flag). `init-config` refuses to overwrite an existing config; delete
+the file first if you intend a reset.
+
+## Troubleshooting
+
+| Symptom                                      | Action                                                                                                                           |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `npm install -g` fails EACCES                | set a user prefix (`npm config set prefix ~/.local`, add `~/.local/bin` to PATH) or use an nvm-managed Node; never `sudo npm -g` |
+| `command not found` after install            | binary lives in `$(npm prefix -g)/bin`; add it to PATH, or use the clone+`npm link` path                                         |
+| Host shows disconnected                      | `workspace-mcp doctor`, fix first FAIL; if green, the host's spawn PATH differs — use the absolute binary path                   |
+| `CONFIG_ERROR` on startup                    | permissions/JSON/symlink/unknown-task; the message names the cause                                                               |
+| `init-config` exits 1                        | it refuses to overwrite; delete the existing config first                                                                        |
+| `WORKSPACE_UNAVAILABLE`                      | root path moved/deleted; fix or remove the workspace entry                                                                       |
+| `TASK_DENIED`                                | task id not enabled for that workspace; `task_list` shows the allowlist                                                          |
+| Task executable missing                      | `doctor` flags `task.<id>.executable`; install it or fix task `env.PATH`                                                         |
+| Search returns nothing                       | `rg` must be on the sanitized PATH; `doctor` checks it                                                                           |
+| `ACCESS_DENIED`/`OUTSIDE_ROOT`/`BINARY_FILE` | policy working as intended; widen only in operator config                                                                        |
+| Unexpected `INTERNAL_ERROR`                  | check the host's MCP stderr log; report per [SECURITY.md](SECURITY.md)                                                           |
+| Tunnel (ChatGPT) down                        | `tunnel-client runtimes status`; recovery in [docs/OPERATIONS.md](docs/OPERATIONS.md)                                            |
+
+`workspace-mcp doctor --json` gives machine-readable output for CI or
+wrapper scripts. Full reset: delete the config and
+`~/.config/local-workspace-mcp/audit.jsonl`, re-run `init-config`.
+
+## Compatibility
+
+- Node ≥ 20 (uses `node:util` parseArgs; tested on Node 22).
+- macOS/Linux. Windows is untested; path validation is POSIX-shaped.
+- MCP SDK `@modelcontextprotocol/sdk` v1.x line (spec ≤ 2025-11-25);
+  v2 API surface is deliberately not adopted yet (see [docs/RESEARCH.md](docs/RESEARCH.md)).
+- ripgrep required for `fs_search_content`; git required for `git_*`.
+
+## Verifying the build
 
 ```sh
-pnpm test                       # 169 vitest cases incl. 33-case adversarial suite
-scripts/inspector-smoke.sh      # 17-check MCP Inspector CLI battery
-workspace-mcp doctor            # deterministic diagnostics (config, roots, tools)
-pnpm audit --prod               # zero known runtime vulnerabilities
+pnpm install --frozen-lockfile
+pnpm test                    # 169 vitest cases incl. 33-case adversarial suite
+pnpm typecheck && pnpm build
+workspace-mcp doctor         # deterministic diagnostics
+scripts/inspector-smoke.sh   # 17-check MCP Inspector battery
+pnpm audit                   # dependency audit (last run: clean)
 ```
+
+## Contributing, security, license
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): RED-first tests, fail-closed rules, no new capability
+  surface without design review.
+- [SECURITY.md](SECURITY.md): vulnerability reporting and scope.
+- [CHANGELOG.md](CHANGELOG.md): release notes by finding/version.
+- License: `UNLICENSED` for now (private development); the owner intends a
+  permissive license before any public release.
+
+## Release status
+
+v0.1.0 is a private release candidate. The public surface (this README,
+[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is the
+artifact being evaluated. Nothing has been published.

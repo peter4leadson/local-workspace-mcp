@@ -22,7 +22,7 @@ const TaskDefinitionSchema = z.object({
   command: z.array(z.string().min(1).max(500)).min(1).max(16),
   // cwd is interpreted relative to the workspace root; "." = root.
   cwd: z.string().max(500).optional(),
-  timeoutMs: z.number().int().min(1000).max(600_000).optional(),
+  timeoutMs: z.number().int().min(1000).max(300_000).optional(), // runner hard cap: 300s
   // Extra environment variables merged over the sanitized base env.
   // Values are literals only; never reference secrets here.
   env: z.record(z.string().max(200)).optional(),
