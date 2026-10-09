@@ -1,10 +1,12 @@
 # Release decision pack — local-workspace-mcp
 
 Status: RELEASE-READY_PENDING_OWNER_ACTION — all technically provable gates
-pass; remaining blockers are genuinely owner-controlled (license, repo
-hosting, npm identity, registry submission, remote attach for CI proof).
-Security disposition: SHIP, independently reviewed at `a3fe113` plus
-verified deltas through `0c9450e`. Do not publish until the owner acts.
+pass, including private GitHub hosting and remote CI proof on the candidate
+SHA; remaining blockers are genuinely owner-controlled (license, npm
+identity, registry submission, public visibility). Security disposition:
+SHIP, independently reviewed at `a3fe113` plus verified deltas through
+`0c9450e`. Documentation experience disposition: GREEN after the second EA
+pass (§3b). Do not publish until the owner acts.
 
 |                    |                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------------ |
