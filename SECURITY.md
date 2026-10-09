@@ -9,13 +9,15 @@ content, execution beyond allowlisted tasks — are security issues.
 
 Out of scope: a local attacker who already has the operator's uid and write
 access to a workspace root (hardlink planting, symlink TOCTOU races). Those
-are documented as residual risks in `docs/THREAT-MODEL.md`.
+are documented as residual risks in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
 ## Reporting
 
 This project is currently a private release candidate. Report suspected
-vulnerabilities privately to the repository owner — do not file public issues
-or post reproductions containing real file paths, hostnames, or contents.
+vulnerabilities privately to the repository owner through an existing direct
+channel — do not file public issues or post reproductions containing real
+file paths, hostnames, or contents. Once the repository is public, use
+GitHub's private vulnerability reporting (Security Advisories).
 
 Include:
 
@@ -38,7 +40,10 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 
 ## Hardening posture (what is already enforced)
 
-- Read-only tool surface — no write/edit/delete/exec tools exist in V1.
+- Read-oriented tool surface — no write/edit/delete tools and no arbitrary
+  command execution exist in V1. The only executable surface is `task_run`,
+  which runs operator-allowlisted argv (`shell:false`) with real side
+  effects — bounded invocation, not a sandbox.
 - Lexical + canonical (realpath) containment with ancestor walking.
 - Deny policy on relative paths and basenames, evaluated on both the lexical
   and resolved path; deny rules and workspace roots live only in the

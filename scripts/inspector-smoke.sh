@@ -1,10 +1,12 @@
 #!/bin/sh
 # Reproducible MCP Inspector smoke suite for local-workspace-mcp.
 # Uses --cli mode; asserts expected outcomes for happy-path and adversarial calls.
-# Usage: scripts/inspector-smoke.sh [workspace_id_for_git_tests]  (default: onramp)
+# Usage: scripts/inspector-smoke.sh <workspace_id_for_git_tests>
+# Requires a configured workspace (run `workspace-mcp init-config` and add a
+# real workspace root first; `workspace-mcp doctor` must be green).
 set -u
 cd "$(dirname "$0")/.."
-WS="${1:-onramp}"
+WS="${1:?usage: inspector-smoke.sh <workspace-id> (a workspace id from your config)}"
 INSP="npx -y @modelcontextprotocol/inspector@2.9.0 --cli node dist/cli.js serve --stdio"
 PASS=0; FAIL=0
 

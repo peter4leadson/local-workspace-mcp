@@ -30,17 +30,18 @@ https://raw.githubusercontent.com/modelcontextprotocol/servers/main/src/filesyst
 https://raw.githubusercontent.com/modelcontextprotocol/servers/main/src/filesystem/lib.ts
 
 Gaps vs required contract:
+
 - write/edit/move/create tools enabled unconditionally — violates "V1
   read-oriented, no mutation surface"; cannot be disabled by config;
 - no sensitive-file denylist (`.env`, keys, creds readable);
 - no git tools, no named-task execution — the tools that motivate this server;
 - flat allowed-dirs, no workspace-id namespacing/metadata contract;
 - no bounded structured responses with truncation metadata.
-Wrapping it would hide rather than remove the write surface — effectively a
-fork, which the brief disallows. **Adopted** its containment technique instead:
-realpath allowed roots at startup (both configured + resolved forms), resolve
-then realpath the target, re-verify containment; Unicode-NFC equivalence on
-path components; Windows-drive rejection on POSIX.
+  Wrapping it would hide rather than remove the write surface — effectively a
+  fork, which the brief disallows. **Adopted** its containment technique instead:
+  realpath allowed roots at startup (both configured + resolved forms), resolve
+  then realpath the target, re-verify containment; Unicode-NFC equivalence on
+  path components; Windows-drive rejection on POSIX.
 
 ## OpenAI Secure MCP Tunnel — exists, official path used
 
@@ -56,7 +57,7 @@ path components; Windows-drive rejection on POSIX.
   loopback; `runtimes connect` is the supported supervised local runtime
   (explicitly preferred over nohup/disown); runtime is cloudflared-backed but
   all tunnel traffic is outbound-only; no inbound listener anywhere.
-- Prerequisites that are Peter-controlled: `tunnel_id` (Platform →
+- Prerequisites that are owner-controlled: `tunnel_id` (Platform →
   settings/organization/tunnels) and a runtime API key with Tunnels Read+Use.
 - Optional Codex plugin installed: `tunnel-client codex plugin install`.
 

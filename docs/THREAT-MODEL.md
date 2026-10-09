@@ -53,17 +53,17 @@ config is trusted; everything reachable under a root is untrusted data.
 | Env/secret leakage                                         | subprocess env = sanitized allowlist (PATH/HOME/…); `GIT_TERMINAL_PROMPT=0`; task `env` rejects key/secret/token-named vars                                 | `env-dump` test                 |
 | Resource exhaustion                                        | caps everywhere: read bytes/lines, list entries, search results+deadline (rg), readMany totals, git output, task output+timeout, file-size limit            | limit tests                     |
 | Large-output context flood                                 | structured `truncated`/`nextStartLine`/`nextOffset` metadata                                                                                                | tests                           |
-| ReDoS                                                      | content search delegated to ripgrep (linear-time engine); pattern length cap                                                                                | —                               |
+| ReDoS                                                      | content search delegated to ripgrep (linear-time engine); caller glob length cap (300 chars); minimatch ≥10.2.3 (CVE fix)                                   | adversarial S-10 + dep pin      |
 | Binary dump                                                | NUL-probe → BINARY_FILE refusal                                                                                                                             | test                            |
 | Malicious repo content                                     | files are data; they cannot alter roots/deny/tasks — those live in operator config                                                                          | INJECTION.txt test              |
-| Tool-scope creep                                           | V1 has no write/edit/delete/exec tools; `task_run` marked non-readOnly                                                                                      | annotation checks               |
+| Tool-scope creep                                           | V1 has no write/edit/delete tools and no arbitrary-command exec; `task_run` (allowlisted argv only) is marked non-readOnly                                  | annotation checks               |
 | Secrets in logs                                            | audit = JSONL metadata only (no contents, no abs paths, no env)                                                                                             | code review + test              |
 | Supply chain                                               | pinned exact versions + committed lockfile; 3 runtime deps                                                                                                  | package.json/pnpm-lock          |
 | Public exposure                                            | stdio only; no listener; tunnel client is outbound-only                                                                                                     | architecture                    |
 
 ## Adversarial findings ledger (2026-10-09 round, all remediated + regressed)
 
-RED-first adversarial suite (`tests/adversarial.test.ts`, 23 cases) reproduced
+RED-first adversarial suite (`tests/adversarial.test.ts`, 33 cases) reproduced
 the following against `b87b0a3`; all closed in `d3e0db2` + `bdbdb28`:
 
 | ID   | Sev            | Finding → Fix                                                                                                               |
@@ -86,7 +86,7 @@ Independent clean-context review (second round) added:
 | F-2 | MED | merge-conflict `diff --cc`/`--combined` evaded `redactDiff` → all `diff --*` headers path-checked, fail-closed. |
 | F-3 | MED | key sniff covered only first 8 KiB → whole-file streamed scan. |
 | F-4 | MED | marker line redacted but key body lines passed → whole-part suppression. |
-| F-5 | MED | `task_run` env lacked GIT*\* hardening → hostile `.git/config` inert under tasks. |
+| F-5 | MED | `task_run` env lacked `GIT_*` hardening → hostile `.git/config` inert under tasks. |
 | F-6 | MED | `rev:path` `//`/`/./`/`..` spellings → normalized in `policy.check` + tested. |
 | F-7 | LOW | config symlink/dir perms unchecked → lstat refuse + dir `0o022` mask. |
 | F-8 | LOW | audit leaf-symlink check missed parent components → per-component lstat. |

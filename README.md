@@ -13,7 +13,8 @@ bounded capability without giving the model a shell.
   read-only git (status/diff/log/show/branches), and `task_run` for
   explicitly allowlisted commands.
 - **One transport:** each MCP host spawns `workspace-mcp serve --stdio`.
-  No inbound listener, no daemon, no network access at runtime.
+  No inbound listener, no daemon; the server itself makes no network calls
+  (allowlisted tasks run as your user and are not network-restricted).
 - **Honest scope:** `task_run` executes real commands as your user. The
   allowlist bounds _what can be invoked_, not what invoked code can do.
   It is not a sandbox.
@@ -38,7 +39,8 @@ that does not exist.
 
 ## Quick start
 
-Requires Node ≥ 20 and, for content search, ripgrep (`rg`) on PATH.
+Requires Node ≥ 20, plus `git` for `git_*` tools and ripgrep (`rg`) for
+content search. Building from a clone needs pnpm (`corepack enable`).
 
 ```sh
 # from a clone:
@@ -47,8 +49,18 @@ pnpm install && pnpm build && npm link        # puts workspace-mcp on PATH
 npm install -g local-workspace-mcp-0.1.0.tgz
 
 workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
-$EDITOR ~/.config/local-workspace-mcp/config.json   # add a workspace root (below)
+$EDITOR ~/.config/local-workspace-mcp/config.json   # replace the example workspace (below)
 workspace-mcp doctor          # must print "doctor: ALL GREEN" (use --json for CI)
+```
+
+The generated config ships a placeholder workspace named `example` —
+replace it with a real root or `doctor` will report `root.example` FAIL.
+A healthy run ends:
+
+```text
+PASS policy.selftest — 9/9 cases correct
+PASS mcp.startup — tool registration ok
+doctor: ALL GREEN
 ```
 
 Minimal working config (strict JSON — no comments or trailing commas):
@@ -88,7 +100,7 @@ task_run  {workspace:"myproj", taskId:"typecheck"}
 Denied behavior is explicit, never silent:
 
 ```text
-fs_read {path:".env"}              → ACCESS_DENIED
+fs_read {path:".env"}              → ACCESS_DENIED  (or NOT_FOUND if absent)
 fs_read {path:"../../etc/passwd"}  → OUTSIDE_ROOT
 task_run {taskId:"nuke"}           → TASK_DENIED    (valid id, not enabled)
 task_run {taskId:"rm -rf /"}       → INVALID_ARGUMENT (malformed task id)
@@ -96,9 +108,9 @@ git_show {spec:"--exec"}           → INVALID_ARGUMENT
 ```
 
 Denial codes are the policy working as intended, not errors to report;
-widening access happens only in the operator config. Timeout and output
-limits return `timedOut:true`/`truncated:true` in a normal result rather
-than an error. `INTERNAL_ERROR` covers spawn/tool failures and should not
+widening access happens only in the operator config. Task/search timeouts
+and output limits return `timedOut:true`/`truncated:true` in a normal
+result rather than an error. `INTERNAL_ERROR` covers spawn/tool failures and should not
 appear in healthy use; `git_*` on a non-git root returns `{repo:false}`
 gracefully.
 
@@ -129,7 +141,7 @@ pure reads). `task_run` is the only tool with side effects.
 | Host                    | Mechanism                                                                                                    | Status          |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------ | --------------- |
 | Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified        |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | verified        |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | configured      |
 | Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | same stdio path |
 | ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified        |
 | MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified        |
@@ -139,7 +151,8 @@ not your shell's. If a host reports ENOENT or stays disconnected while
 `doctor` is green, the binary is not on the host's PATH. Use the absolute
 path (`which workspace-mcp`) as the command and check the host's MCP log.
 
-Claude Desktop example:
+Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`
+on macOS):
 
 ```json
 {
@@ -150,6 +163,14 @@ Claude Desktop example:
     }
   }
 }
+```
+
+Codex CLI (`~/.codex/config.toml`, or `codex mcp add`):
+
+```toml
+[mcp_servers.local-workspace]
+command = "/absolute/path/to/workspace-mcp"
+args = ["serve", "--stdio"]
 ```
 
 For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
@@ -165,7 +186,8 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   directory that contains things the assistant should not read.
 - **Denied by default:** `.env*` (except `.example`/`.sample`/`.template`),
   private-key filenames, `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh`, `.aws`,
-  `.kube`, `.docker`, `.npmrc`, `.netrc`, `.pgpass`, `secrets.*`,
+  `.kube`, `.docker`, `.npmrc`, `.netrc`, `.pgpass`,
+  `secrets.{json,yaml,yml,toml}`/`.secrets`/`secrets.d`,
   `*credentials*.json`, and all `.git` internals.
 - **Name is not the only boundary:** a file containing `BEGIN … PRIVATE KEY`
   armor under a benign name is refused in reads, `git_show` blobs, and
@@ -183,13 +205,15 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   sanitized environment, per-task timeout and output caps. Operator env
   cannot inject `GIT_*`, loader, or interpreter hooks.
 - **Errors are bounded:** every failure is `CODE: message`; absolute host
-  paths and tool stderr never reach a response.
+  paths are scrubbed from tool errors. `task_run` returns subprocess
+  stdout/stderr verbatim — that output belongs to commands the operator
+  allowlisted.
 
 Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
 `RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`,
 `WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `CONFIG_ERROR`,
-`INTERNAL_ERROR`. Timeouts are reported in the result (`timedOut:true`),
-not as error codes.
+`INTERNAL_ERROR`. `task_run` and search timeouts return `timedOut:true`
+in the result; a git command timeout surfaces as `INTERNAL_ERROR`.
 
 ## What it will not do
 
@@ -256,7 +280,7 @@ Common `limits` keys (key: default): `maxReadFileBytes`: 5 MB file-size
 ceiling for reads, `defaultReadBytes`: 64 KiB per read,
 `maxSearchResults`: 200, `searchDeadlineMs`: 20 s, `gitTimeoutMs`: 15 s,
 `maxTaskOutputBytes`: 64 KiB, `walkEntryCap`/`walkDepthCap`: 50k entries /
-20 deep. Full schema with bounds: `src/config.ts`. Callers can pass
+20 deep. Full schema with bounds: [src/config.ts](src/config.ts). Callers can pass
 `timeoutMs` to `task_run` to shorten a task's timeout; it can never
 exceed the configured value or the 300 s hard cap.
 
@@ -284,7 +308,10 @@ the file first if you intend a reset.
 
 `workspace-mcp doctor --json` gives machine-readable output for CI or
 wrapper scripts. Full reset: delete the config and
-`~/.config/local-workspace-mcp/audit.jsonl`, re-run `init-config`.
+`~/.config/local-workspace-mcp/audit.jsonl`, re-run `init-config`. To
+uninstall entirely, also remove the host entry (`claude mcp remove`, the
+`mcpServers`/`mcp_servers` block, or the tunnel profile) and `npm uninstall
+-g local-workspace-mcp` (or `npm unlink` if linked from a clone).
 
 ## Compatibility
 
@@ -301,7 +328,7 @@ pnpm install --frozen-lockfile
 pnpm test                    # 169 vitest cases incl. 33-case adversarial suite
 pnpm typecheck && pnpm build
 workspace-mcp doctor         # deterministic diagnostics
-scripts/inspector-smoke.sh   # 17-check MCP Inspector battery
+scripts/inspector-smoke.sh <workspace-id>   # 17-check MCP Inspector battery
 pnpm audit                   # dependency audit (last run: clean)
 ```
 

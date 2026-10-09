@@ -7,8 +7,14 @@ pnpm install          # pnpm 10.18.x (see packageManager field)
 pnpm build            # tsc → dist/
 pnpm test             # vitest — must be green before review
 pnpm typecheck        # tsc --noEmit
-scripts/inspector-smoke.sh <workspace-id>   # MCP protocol battery
 node dist/cli.js doctor                     # diagnostics
+```
+
+The Inspector battery and `doctor` need a configured workspace first
+(`node dist/cli.js init-config`, edit the config, `doctor` must be green):
+
+```sh
+scripts/inspector-smoke.sh <workspace-id>   # MCP protocol battery
 ```
 
 ## Rules that are not negotiable
@@ -21,7 +27,7 @@ node dist/cli.js doctor                     # diagnostics
    environment values to a caller.
 3. **No new capability without a threat-model row.** A tool that writes,
    executes, or listens is a new trust boundary — add it to
-   `docs/THREAT-MODEL.md` first, with its controls and proofs.
+   [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) first, with its controls and proofs.
 4. **Repository content is adversarial data.** Nothing under a workspace
    root may widen roots, deny rules, task definitions, or execution policy.
    Those live in the operator config only.

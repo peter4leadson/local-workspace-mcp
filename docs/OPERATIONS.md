@@ -7,9 +7,11 @@ workspace-mcp doctor           # deterministic check battery; exit 0 = healthy
 workspace-mcp doctor --json    # machine-readable
 ```
 
-Checks: build identity → config parse → each root exists+is-dir → `git` and
-`rg` on sanitized PATH → every configured task executable resolvable → deny
-policy self-test → MCP tool-registration smoke → `tunnel-client` presence.
+Checks: build identity → Node ≥20 → config file permissions (not
+group/world-writable, not a symlink) → config parse → each root
+exists+is-dir → `git` and `rg` on sanitized PATH → every configured task
+executable resolvable → deny policy self-test → MCP tool-registration
+smoke → `tunnel-client` presence.
 
 ## Startup
 

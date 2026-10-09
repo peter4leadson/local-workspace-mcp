@@ -84,7 +84,7 @@ Verification pass on the round-2 fixes (all remediated + regressed):
 
 ### Added
 
-- `tests/adversarial.test.ts`: 23-case adversarial suite covering
+- `tests/adversarial.test.ts`: 33-case adversarial suite covering
   containment, diff/search content leaks, execution boundaries, config
   fail-closed behavior, audit integrity, and stdio protocol purity.
 - `SECURITY.md`, `CONTRIBUTING.md`, this changelog.

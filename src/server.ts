@@ -15,7 +15,7 @@ const workspaceId = z
   .string()
   .max(64)
   .regex(/^[a-z0-9][a-z0-9_-]*$/i)
-  .describe("Workspace id from workspace_roots, e.g. 'onramp'.");
+  .describe("Workspace id from workspace_roots, e.g. 'myproj'.");
 const wsPath = z
   .string()
   .max(4096)
@@ -109,7 +109,7 @@ export function createServer(deps: Deps): McpServer {
       description:
         "List the local engineering workspaces this server is authorized to inspect. Returns workspace ids " +
         "for use with all other tools, plus availability and enabled task ids. This is a read-only, " +
-        "offline view of Peter's live working trees — including uncommitted state.",
+        "offline view of the operator's authorized working trees — including uncommitted state.",
       inputSchema: {},
       annotations: RO,
     },

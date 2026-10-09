@@ -223,7 +223,7 @@ export class FsOps {
     if (st.size > this.limits.maxReadFileBytes) {
       throw new ToolError(
         "RESOURCE_LIMIT",
-        `file is ${st.size} bytes, over limit ${this.limits.maxReadFileBytes}; narrow with git_search or read a smaller file`
+        `file is ${st.size} bytes, over limit ${this.limits.maxReadFileBytes}; narrow with fs_read startLine/maxLines or raise limits.maxReadFileBytes`
       );
     }
     const sniff = await this.sniff(r.canonical, r.rel);
