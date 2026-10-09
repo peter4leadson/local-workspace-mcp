@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, e.g. 0.2.0 (must equal package.json version and the git tag v<version>)"
+        description: "Version to publish, e.g. 0.2.0. Run the workflow on the tagged release commit — package.json version must equal this, and the v<version> tag must point at the checkout SHA."
         required: true
         type: string
 
@@ -78,27 +78,10 @@ jobs:
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
-        run: |
-          set -euo pipefail
-          PKG=$(node -p "require('./package.json').version")
-          # Expected version comes from the release tag (vX.Y.Z) or dispatch input
-          if [ -n "$RELEASE_TAG" ]; then EXPECT="${RELEASE_TAG#v}"; else EXPECT="$DISPATCH_VERSION"; fi
-          [ -n "$EXPECT" ] || { echo "no version resolved"; exit 1; }
-          [ "$PKG" = "$EXPECT" ] || { echo "package.json version $PKG != release version $EXPECT"; exit 1; }
-          # Tag must exist and point at this commit
-          TAGREF="${RELEASE_TAG:-v$EXPECT}"
-          git rev-parse "$TAGREF^{commit}" >/dev/null 2>&1 || { echo "tag $TAGREF missing from checkout"; exit 1; }
-          [ "$(git rev-parse "$TAGREF^{commit}")" = "$GITHUB_SHA" ] || { echo "tag $TAGREF does not point at $GITHUB_SHA"; exit 1; }
-          # Refuse to republish an existing version
-          if npm view "local-workspace-mcp@$EXPECT" version >/dev/null 2>&1; then
-            echo "local-workspace-mcp@$EXPECT already published — refusing duplicate"; exit 1;
-          fi
-          # Prereleases stage onto dist-tag `next`, never `latest`
-          DIST_TAG=latest
-          [ "$IS_PRERELEASE" = "true" ] && DIST_TAG=next
-          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
-          echo "version $EXPECT: consistent, tagged, unpublished (dist-tag $DIST_TAG)"
+        run: node scripts/release-check.js
+        # Implemented + unit-tested in scripts/release-check.js (tests/release-check.test.ts):
+        # version match, tag→SHA, fail-closed npm duplicate check, dist-tag
+        # derived from the version (prerelease → next, stable → latest).
       - name: Stage publish to npm (OIDC, owner approves on npmjs.com)
         run: npm stage publish --access public --tag "$DIST_TAG"
         # No --provenance flag: npm attaches build provenance automatically
