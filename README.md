@@ -54,15 +54,22 @@ repos — repository content cannot widen policy):
 {
   "version": 1,
   "workspaces": {
-    "onramp": { "path": "/abs/path", "description": "…", "tasks": ["typecheck"] }
+    "onramp": {
+      "path": "/abs/path",
+      "description": "…",
+      "tasks": ["typecheck"],
+    },
   },
   "tasks": {
     // argv arrays only; the caller picks a task id, never command text.
-    "typecheck": { "command": ["pnpm", "typecheck"], "timeoutMs": 180000,
-                   "env": { "PATH": "/opt/node24/bin:${PATH}" } }
+    "typecheck": {
+      "command": ["pnpm", "typecheck"],
+      "timeoutMs": 180000,
+      "env": { "PATH": "/opt/node24/bin:${PATH}" },
+    },
   },
-  "deny":   ["**/extra-secret/**"],   // appended to the built-in deny rules
-  "limits": {}                         // see src/config.ts for all knobs
+  "deny": ["**/extra-secret/**"], // appended to the built-in deny rules
+  "limits": {}, // see src/config.ts for all knobs
 }
 ```
 
@@ -70,22 +77,22 @@ repos — repository content cannot widen policy):
 
 ## Tool contract (14 tools)
 
-| tool | purpose | notes |
-|---|---|---|
-| `workspace_roots` | list authorized workspace ids + availability | no host paths leaked |
-| `fs_list` | bounded non-recursive listing, paginated | denied entries flagged |
-| `fs_stat` | metadata | symlink resolution visible |
-| `fs_read` | line-range text read | binary refused, bounded bytes/lines |
-| `fs_read_many` | batch reads | per-file inline errors, total cap |
-| `fs_search_files` | filename glob search | git file universe (honors .gitignore) |
-| `fs_search_content` | literal/regex content search | ripgrep backend, time/count bounded |
-| `git_status` | branch, HEAD, staged/modified/deleted/renamed/untracked/conflicted | the uncommitted-truth tool |
-| `git_diff` | worktree/staged/ref diff, stat mode | bounded output |
-| `git_log` | bounded history (≤100) | |
-| `git_show` | commit or `ref:path` object | strict ref validation |
-| `git_branches` | branches, upstreams, worktrees | worktree host paths redacted |
-| `task_list` | permitted named tasks per workspace | |
-| `task_run` | execute allowlisted argv task | `shell:false`, sanitized env, timeout/output caps |
+| tool                | purpose                                                            | notes                                             |
+| ------------------- | ------------------------------------------------------------------ | ------------------------------------------------- |
+| `workspace_roots`   | list authorized workspace ids + availability                       | no host paths leaked                              |
+| `fs_list`           | bounded non-recursive listing, paginated                           | denied entries flagged                            |
+| `fs_stat`           | metadata                                                           | symlink resolution visible                        |
+| `fs_read`           | line-range text read                                               | binary refused, bounded bytes/lines               |
+| `fs_read_many`      | batch reads                                                        | per-file inline errors, total cap                 |
+| `fs_search_files`   | filename glob search                                               | git file universe (honors .gitignore)             |
+| `fs_search_content` | literal/regex content search                                       | ripgrep backend, time/count bounded               |
+| `git_status`        | branch, HEAD, staged/modified/deleted/renamed/untracked/conflicted | the uncommitted-truth tool                        |
+| `git_diff`          | worktree/staged/ref diff, stat mode                                | bounded output                                    |
+| `git_log`           | bounded history (≤100)                                             |                                                   |
+| `git_show`          | commit or `ref:path` object                                        | strict ref validation                             |
+| `git_branches`      | branches, upstreams, worktrees                                     | worktree host paths redacted                      |
+| `task_list`         | permitted named tasks per workspace                                |                                                   |
+| `task_run`          | execute allowlisted argv task                                      | `shell:false`, sanitized env, timeout/output caps |
 
 Errors are explicit `CODE: message` (`ACCESS_DENIED`, `OUTSIDE_ROOT`,
 `NOT_FOUND`, `TASK_DENIED`, `RESOURCE_LIMIT`, `BINARY_FILE`, `TIMEOUT`,
@@ -103,7 +110,14 @@ claude mcp list      # shows ✔ Connected
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
-{ "mcpServers": { "local-workspace": { "command": "/Users/…/.local/bin/workspace-mcp", "args": ["serve","--stdio"] } } }
+{
+  "mcpServers": {
+    "local-workspace": {
+      "command": "/Users/…/.local/bin/workspace-mcp",
+      "args": ["serve", "--stdio"]
+    }
+  }
+}
 ```
 
 Restart the app to pick it up.
@@ -137,18 +151,32 @@ runtime key). See `docs/OPERATIONS.md` for the recovery procedure.
 - Deny-by-default for `.env*` (except `*.example/.sample/.template`), private
   keys, `.pem/.key/.p12/.pfx/.jks/.kdbx`, `.ssh/.aws/.kube/.docker` credential
   trees, `.npmrc/.netrc/.pgpass`, `secrets.*`, `*credentials*.json`, `.git/**`.
+- Content-level key detection: a file carrying `BEGIN ... PRIVATE KEY`
+  material under a benign name is refused in `fs_read`, `git_show` blobs, and
+  search previews — the name is not the only boundary.
 - Git: argv-only spawns, `--end-of-options`, strict ref allowlist,
-  `GIT_TERMINAL_PROMPT=0`, sanitized env.
+  `GIT_TERMINAL_PROMPT=0`, sanitized env, hostile `core.fsmonitor`/
+  external-diff config neutralized. Diff redaction checks BOTH sides of a
+  rename — `a/.env → b/innocent.ts` cannot launder denied content.
+- Search: `rg --json` structured output, so crafted filenames (`:`- or
+  newline-containing directories) cannot spoof match attribution; denied
+  files produce no match records and no previews.
+- Errors are bounded `CODE: message` results — raw errno paths, absolute host
+  paths, and rg stderr are scrubbed before they can reach a tool response.
 - Tasks: allowlisted argv per workspace, `shell:false`, env allowlist,
   per-task timeout ≤5min hard cap, output cap.
-- Audit: JSONL metadata only (tool, workspace, rel target, code, ms). No file
-  contents, no absolute paths, no env values.
+- Audit: JSONL metadata only (tool, workspace, rel target, code, ms); refuses
+  to write through a symlinked log path. No contents, no abs paths, no env.
+- Config is the trust root: `mode 0600`-class permission enforcement, and
+  operator deny globs are validated at startup (a malformed rule that would
+  silently never match fails the load instead).
 - No write tools, no exec primitive, no inbound listener — ever, in V1.
 
 ## Verification
 
 ```sh
-pnpm test                       # 120 vitest cases incl. adversarial suite
+pnpm test                       # 159 vitest cases incl. 23-case adversarial suite
 scripts/inspector-smoke.sh      # 17-check MCP Inspector CLI battery
-workspace-mcp doctor            # 20-check deterministic diagnostics
+workspace-mcp doctor            # deterministic diagnostics (config, roots, tools)
+pnpm audit --prod               # zero known runtime vulnerabilities
 ```
