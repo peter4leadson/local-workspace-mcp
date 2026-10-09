@@ -80,7 +80,16 @@ export function checkConfigPermissions(configPath = defaultConfigPath()): { ok: 
 }
 
 export function loadConfig(configPath = defaultConfigPath()): LoadedConfig {
-  const perms = checkConfigPermissions(configPath);
+  let perms: { ok: boolean; mode: string };
+  try {
+    perms = checkConfigPermissions(configPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    throw new Error(
+      `CONFIG_ERROR: cannot stat config at ${configPath} (${code ?? String(err)}). ` +
+        `Create it with \`workspace-mcp init-config\`.`
+    );
+  }
   if (!perms.ok) {
     throw new Error(
       `CONFIG_ERROR: ${configPath} is group/world-writable (mode ${perms.mode}); ` +

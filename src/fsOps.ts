@@ -6,7 +6,7 @@ import { minimatch } from "minimatch";
 import { WorkspaceIndex, ToolError } from "./paths.js";
 import { DenyPolicy } from "./policy.js";
 import type { Limits } from "./config.js";
-import { gitFileUniverse } from "./git.js";
+import { gitFileUniverse, hasPrivateKeyMaterial } from "./git.js";
 import { runBounded, sanitizedEnv } from "./exec.js";
 
 /** Directories skipped when walking non-git workspaces (git workspaces use
@@ -41,6 +41,26 @@ export interface ListEntry {
   denied?: string;
 }
 
+/**
+ * Map raw fs errors to bounded ToolErrors. Raw `ENOENT`/`EACCES` messages
+ * embed the absolute host path; callers must never see those.
+ */
+function mapFsError(err: unknown, rel: string): ToolError {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  switch (code) {
+    case "ENOENT":
+    case "ENOTDIR":
+      return new ToolError("NOT_FOUND", `path does not exist: ${rel}`);
+    case "EACCES":
+    case "EPERM":
+      return new ToolError("ACCESS_DENIED", `permission denied reading: ${rel}`);
+    case "ELOOP":
+      return new ToolError("ACCESS_DENIED", `path resolves through too many symlinks: ${rel}`);
+    default:
+      return new ToolError("INTERNAL_ERROR", `filesystem error accessing: ${rel}`);
+  }
+}
+
 export class FsOps {
   constructor(
     private readonly index: WorkspaceIndex,
@@ -52,12 +72,21 @@ export class FsOps {
 
   async list(workspace: string, inputPath: string | undefined, limit?: number, offset = 0) {
     const r = await this.index.resolve(workspace, inputPath);
-    const st = await fs.stat(r.canonical).catch(() => null);
-    if (!st) throw new ToolError("NOT_FOUND", `path does not exist: ${r.rel}`);
+    let st;
+    try {
+      st = await fs.stat(r.canonical);
+    } catch (err) {
+      throw mapFsError(err, r.rel);
+    }
     if (!st.isDirectory()) throw new ToolError("INVALID_ARGUMENT", `not a directory: ${r.rel}`);
 
     const cap = Math.min(limit ?? this.limits.maxListEntries, this.limits.maxListEntries);
-    const dirents = await fs.readdir(r.canonical, { withFileTypes: true });
+    let dirents;
+    try {
+      dirents = await fs.readdir(r.canonical, { withFileTypes: true });
+    } catch (err) {
+      throw mapFsError(err, r.rel);
+    }
     dirents.sort((a, b) => a.name.localeCompare(b.name));
 
     const total = dirents.length;
@@ -100,8 +129,8 @@ export class FsOps {
     let st;
     try {
       st = await fs.stat(r.canonical);
-    } catch {
-      throw new ToolError("NOT_FOUND", `path does not exist: ${r.rel}`);
+    } catch (err) {
+      throw mapFsError(err, r.rel);
     }
     return {
       workspace,
@@ -111,16 +140,31 @@ export class FsOps {
       modified: st.mtime.toISOString(),
       created: st.birthtime.toISOString(),
       permissions: (st.mode & 0o777).toString(8),
-      viaSymlink: r.realRel !== r.rel,
+      viaSymlink: r.lexRel !== r.realRel,
     };
   }
 
-  private async isBinary(canonical: string): Promise<boolean> {
-    const fh = await fs.open(canonical, "r");
+  /**
+   * First-chunk inspection: returns the sniffed prefix and whether the file
+   * is binary. Surfaces BOTH binary detection and private-key markers — a
+   * sensitive file under a benign name (e.g. `id_rsa.bak.txt`) must not leak
+   * merely because its name evades the policy.
+   */
+  private async sniff(canonical: string, rel: string): Promise<{ binary: boolean; secret: boolean }> {
+    let fh;
+    try {
+      fh = await fs.open(canonical, "r");
+    } catch (err) {
+      throw mapFsError(err, rel);
+    }
     try {
       const buf = Buffer.alloc(8192);
       const { bytesRead } = await fh.read(buf, 0, 8192, 0);
-      return buf.subarray(0, bytesRead).includes(0);
+      const head = buf.subarray(0, bytesRead);
+      return {
+        binary: head.includes(0),
+        secret: hasPrivateKeyMaterial(head.toString("utf8")),
+      };
     } finally {
       await fh.close();
     }
@@ -135,8 +179,8 @@ export class FsOps {
     let st;
     try {
       st = await fs.stat(r.canonical);
-    } catch {
-      throw new ToolError("NOT_FOUND", `path does not exist: ${r.rel}`);
+    } catch (err) {
+      throw mapFsError(err, r.rel);
     }
     if (!st.isFile()) throw new ToolError("INVALID_ARGUMENT", `not a file: ${r.rel}`);
     if (st.size > this.limits.maxReadFileBytes) {
@@ -145,8 +189,12 @@ export class FsOps {
         `file is ${st.size} bytes, over limit ${this.limits.maxReadFileBytes}; narrow with git_search or read a smaller file`
       );
     }
-    if (await this.isBinary(r.canonical)) {
+    const sniff = await this.sniff(r.canonical, r.rel);
+    if (sniff.binary) {
       throw new ToolError("BINARY_FILE", `binary file; refusing to emit content: ${r.rel} (${st.size} bytes)`);
+    }
+    if (sniff.secret) {
+      throw new ToolError("ACCESS_DENIED", `file contains private-key material (content-class refusal): ${r.rel}`);
     }
 
     const startLine = Math.max(1, opts.startLine ?? 1);
@@ -181,6 +229,8 @@ export class FsOps {
         lastLine = totalLines;
       }
       // If we never broke early, we scanned the whole file and know totalLines.
+    } catch (err) {
+      throw mapFsError(err, r.rel);
     } finally {
       rl.close();
     }
@@ -261,7 +311,12 @@ export class FsOps {
       for (const d of dirents) {
         const full = path.join(dir, d.name);
         if (d.isDirectory()) {
-          if (!DEFAULT_SKIP_DIRS.has(d.name) && depth < this.limits.walkDepthCap) {
+          const relDir = path.relative(root, full).split(path.sep).join("/");
+          if (
+            !DEFAULT_SKIP_DIRS.has(d.name) &&
+            depth < this.limits.walkDepthCap &&
+            this.policy.check(relDir) === null // never descend denied trees
+          ) {
             stack.push({ dir: full, depth: depth + 1 });
           }
         } else if (d.isFile()) {
@@ -331,9 +386,12 @@ export class FsOps {
     const cap = Math.min(opts.limit ?? this.limits.maxSearchResults, this.limits.maxSearchResults);
     const perFile = Math.min(opts.maxMatchesPerFile ?? this.limits.maxSearchMatchesPerFile, this.limits.maxSearchMatchesPerFile);
 
+    // `--json` is the unambiguous wire format: filenames arrive as JSON
+    // strings, so `:`-containing or newline-containing names cannot spoof a
+    // different file's identity in our `path:line:text` layer (regression:
+    // a dir named `x:1:y` once let a denied .env's matches leak under `x`).
     const args = [
-      "--line-number",
-      "--no-heading",
+      "--json",
       "--color=never",
       "--hidden",
       `--max-count=${perFile}`,
@@ -360,27 +418,62 @@ export class FsOps {
       throw new ToolError("INTERNAL_ERROR", "ripgrep execution failed");
     });
 
-    // rg exits 1 for "no matches"; that is not an error.
+    // rg exits 1 for "no matches"; that is not an error. stderr is scrubbed of
+    // absolute workspace paths before it can surface to the caller.
     if (result.exitCode !== 0 && result.exitCode !== 1 && !result.timedOut) {
-      throw new ToolError("INVALID_ARGUMENT", `search failed (rg exit ${result.exitCode}): ${result.stderr.slice(0, 300)}`);
+      const cleanStderr = result.stderr.split(r.ws.realRoot).join("<root>").slice(0, 300);
+      throw new ToolError("INVALID_ARGUMENT", `search failed (rg exit ${result.exitCode}): ${cleanStderr}`);
+    }
+
+    interface RgMessage {
+      type: string;
+      data?: {
+        path?: { text?: string; bytes?: string };
+        lines?: { text?: string };
+        line_number?: number;
+      };
     }
 
     const matches: { path: string; line: number; preview: string }[] = [];
     let deniedCount = 0;
     let rawCount = 0;
+    // Content-level secret sniff, cached per matched file.
+    const sniffed = new Map<string, boolean>();
     for (const line of result.stdout.split("\n")) {
       if (!line) continue;
+      let msg: RgMessage;
+      try {
+        msg = JSON.parse(line) as RgMessage;
+      } catch {
+        continue; // partial JSON at a truncation boundary — drop the fragment
+      }
+      if (msg.type !== "match") continue;
       rawCount++;
-      // rg prints absolute paths because we pass an absolute search root.
-      const m = /^(.*?):(\d+):(.*)$/.exec(line);
-      if (!m) continue;
-      const rel = path.relative(r.ws.realRoot, m[1]!).split(path.sep).join("/");
+      const abs = msg.data?.path?.text ?? (msg.data?.path?.bytes ? Buffer.from(msg.data.path.bytes, "base64").toString("utf8") : null);
+      if (!abs) continue;
+      const rel = path.relative(r.ws.realRoot, abs).split(path.sep).join("/");
       if (rel.startsWith("..") || this.policy.check(rel)) {
         deniedCount++;
         continue;
       }
+      const preview = (msg.data?.lines?.text ?? "").replace(/\n$/, "").slice(0, 240);
+      if (hasPrivateKeyMaterial(preview)) {
+        deniedCount++;
+        continue;
+      }
+      if (!sniffed.has(abs)) {
+        try {
+          sniffed.set(abs, (await this.sniff(abs, rel)).secret);
+        } catch {
+          sniffed.set(abs, false);
+        }
+      }
+      if (sniffed.get(abs)) {
+        deniedCount++;
+        continue;
+      }
       if (matches.length < cap) {
-        matches.push({ path: rel, line: Number(m[2]), preview: (m[3] ?? "").slice(0, 240) });
+        matches.push({ path: rel, line: msg.data?.line_number ?? 0, preview });
       }
     }
 

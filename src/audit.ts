@@ -32,6 +32,15 @@ export class AuditLog {
 
   record(e: AuditEvent): void {
     if (!this.file) return;
+    // Never write through a symlink: if an attacker-in-root managed to place a
+    // link at the audit path (e.g. when an operator points the log inside a
+    // watched workspace), appending must not become a write primitive outside
+    // the intended file.
+    try {
+      if (fs.lstatSync(this.file).isSymbolicLink()) return;
+    } catch {
+      /* ENOENT: file does not exist yet — append will create it */
+    }
     const line = JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n";
     try {
       fs.appendFile(this.file, line, { mode: 0o600 }, () => {});

@@ -33,6 +33,8 @@ export interface ResolvedPath {
   rel: string;
   /** rel of the realpath'd target — differs from rel when symlinks resolve. */
   realRel: string;
+  /** rel of the lexically-resolved input — differs from realRel via symlinks. */
+  lexRel: string;
 }
 
 export interface WorkspaceEntry {
@@ -154,7 +156,7 @@ export class WorkspaceIndex {
     const canonical = await this.realpathWithinRoot(ws, resolved);
     const lexRel = toRel(ws.realRoot, resolved);
     const realRel = toRel(ws.realRoot, canonical);
-    return { canonical, rel: realRel === "." ? lexRel : realRel, realRel, ws };
+    return { canonical, rel: realRel === "." ? lexRel : realRel, realRel, lexRel, ws };
   }
 
   /** Containment + deny policy: the standard gate for all file access. */
@@ -207,6 +209,9 @@ export class WorkspaceIndex {
         }
         if (code === "ENOTDIR") {
           throw new ToolError("NOT_FOUND", `path does not exist (a component is not a directory): ${JSON.stringify(toRel(ws.realRoot, candidate))}`);
+        }
+        if (code === "EACCES" || code === "EPERM") {
+          throw new ToolError("ACCESS_DENIED", `permission denied resolving: ${JSON.stringify(toRel(ws.realRoot, candidate))}`);
         }
         if (code !== "ENOENT") {
           throw new ToolError("INTERNAL_ERROR", `path resolution failed: ${code ?? String(err)}`);

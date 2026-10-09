@@ -62,6 +62,18 @@ const GIT_SAFE_CONFIG = [
   "core.gitProxy=true",
   "-c",
   "core.pager=cat",
+  "-c",
+  "color.ui=false",
+  // Pin diff header prefixes so a hostile repo config cannot reshape
+  // `diff --git` headers past the redaction parser.
+  "-c",
+  "diff.noprefix=false",
+  "-c",
+  "diff.srcPrefix=a/",
+  "-c",
+  "diff.dstPrefix=b/",
+  "-c",
+  "diff.mnemonicPrefix=false",
 ];
 const GIT_NO_EXT_DIFF = ["--no-ext-diff", "--no-textconv"];
 
@@ -150,12 +162,117 @@ export type GitStatusResult =
       };
     };
 
+/** Decode a C-quoted git path token (`"a/we\nird"` → `a/we<LF>ird`). */
+function unquoteGitPath(s: string): string {
+  if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) return s;
+  const inner = s.slice(1, -1);
+  let out = "";
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i]!;
+    if (c !== "\\" || i + 1 >= inner.length) {
+      out += c;
+      continue;
+    }
+    const n = inner[++i]!;
+    if (n >= "0" && n <= "7") {
+      let oct = n;
+      while (i + 1 < inner.length && oct.length < 3 && inner[i + 1]! >= "0" && inner[i + 1]! <= "7") {
+        oct += inner[++i]!;
+      }
+      out += String.fromCharCode(parseInt(oct, 8) & 0xff);
+    } else {
+      const map: Record<string, string> = {
+        n: "\n",
+        t: "\t",
+        r: "\r",
+        a: "\x07",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        "\\": "\\",
+        '"': '"',
+        "'": "'",
+      };
+      out += map[n] ?? n;
+    }
+  }
+  return out;
+}
+
+/** Parse a quoted git token at the start of `s`; returns decoded value + rest. */
+function parseQuotedToken(s: string): { value: string; rest: string } | null {
+  if (!s.startsWith('"')) return null;
+  for (let i = 1; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      return { value: unquoteGitPath(s.slice(0, i + 1)), rest: s.slice(i + 1) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract every plausible (a-path, b-path) pair from a `diff --git` header.
+ * Unquoted headers are ambiguous when filenames contain ` b/` or ` "b/`
+ * (git does not quote spaces); trying every candidate boundary is the
+ * fail-safe direction — worst case is an over-redacted single file part.
+ */
+function diffHeaderCandidates(firstLine: string): { a: string; b: string }[] {
+  const rest = firstLine.slice("diff --git ".length);
+  const out: { a: string; b: string }[] = [];
+  const pushB = (aPath: string, tail: string) => {
+    let bTok = tail;
+    if (tail.startsWith('"')) {
+      const q = parseQuotedToken(tail);
+      if (!q || q.rest.trim() !== "") return;
+      bTok = q.value;
+    }
+    if (bTok.startsWith("b/")) out.push({ a: aPath, b: bTok.slice(2) });
+  };
+  if (rest.startsWith('"')) {
+    const q = parseQuotedToken(rest);
+    if (q && q.rest.startsWith(" ")) pushB(q.value.startsWith("a/") ? q.value.slice(2) : q.value, q.rest.slice(1));
+    return out;
+  }
+  if (!rest.startsWith("a/")) return out;
+  for (let i = 2; i < rest.length; i++) {
+    if (rest[i] !== " ") continue;
+    const tail = rest.slice(i + 1);
+    if (tail.startsWith("b/") || tail.startsWith('"')) pushB(rest.slice(2, i), tail);
+  }
+  return out;
+}
+
+const PRIVATE_KEY_MARKER = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|PuTTY-User-Key-File-\d:/;
+
+/** True when a buffer's early bytes carry private-key material — the
+ *  name-independent deny layer (a key file renamed `notes.txt` must not
+ *  become readable just because its name evades the policy). */
+export function hasPrivateKeyMaterial(text: string): boolean {
+  return PRIVATE_KEY_MARKER.test(text);
+}
+
+/** Redact any lines carrying private-key markers — defense in depth for
+ *  diff/show/search output where a denied-name file's content can appear
+ *  under a benign filename. */
+export function redactSecretMarkers(text: string): string {
+  return text
+    .split("\n")
+    .map((l) => (PRIVATE_KEY_MARKER.test(l) ? "[redacted: private-key marker]" : l))
+    .join("\n");
+}
+
 /**
  * Redact patch hunks for policy-denied paths from diff-format output. A
  * tracked `.env` (or a `:(glob)` pathspec naming one) must not leak contents
- * through git_diff/git_show just because fs_read denies it. Header lines are
- * kept (filenames are visible, like fs_list flagging) but the body is
- * replaced with a bounded marker.
+ * through git_diff/git_show just because fs_read denies it. BOTH sides of the
+ * `diff --git` pair are checked: a detected rename `a/.env b/safe.txt` would
+ * otherwise emit the denied file's hunks under the benign destination name.
+ * An unparseable header is redacted (fail closed).
  */
 export function redactDiff(diff: string, policy: DenyPolicy): string {
   return diff
@@ -163,9 +280,16 @@ export function redactDiff(diff: string, policy: DenyPolicy): string {
     .map((part) => {
       if (!part.startsWith("diff --git ")) return part;
       const firstLine = part.split("\n", 1)[0]!;
-      const m = /^diff --git "?a\/(.*?)"? "?b\/(.*?)"?$/.exec(firstLine);
-      const bPath = m?.[2];
-      const reason = bPath ? policy.check(bPath) : null;
+      const candidates = diffHeaderCandidates(firstLine);
+      let reason: string | null = null;
+      if (candidates.length === 0) {
+        reason = "unparseable-diff-header";
+      } else {
+        for (const c of candidates) {
+          reason = policy.check(c.a) ?? policy.check(c.b);
+          if (reason) break;
+        }
+      }
       if (reason) {
         return `${firstLine}\n[denied-content: ${reason} — hunks suppressed by sensitive-file policy]\n`;
       }
@@ -296,7 +420,8 @@ export class GitOps {
     }
     const res = await git(root, args, this.opts(opts.maxBytes));
     if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git diff failed: ${cleanErr(root, res.stderr)}`);
-    const out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
+    let out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
+    out = redactSecretMarkers(out);
     return { repo: true, diff: out, truncated: res.truncated, bytes: out.length };
   }
 
@@ -322,6 +447,12 @@ export class GitOps {
   async show(root: string, spec: string, maxBytes?: number) {
     if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
     const { path: objPath } = splitRevPath(spec);
+    // Defense in depth: the server layer denies objPath too, but a historical
+    // blob of a denied file must be refused here as well.
+    if (objPath && this.policy) {
+      const reason = this.policy.check(objPath);
+      if (reason) throw new ToolError("ACCESS_DENIED", `path denied by policy (${reason})`);
+    }
     const args = objPath
       ? ["show", ...GIT_NO_EXT_DIFF, "--end-of-options", spec]
       : [
@@ -334,7 +465,11 @@ export class GitOps {
         ];
     const res = await git(root, args, this.opts(maxBytes));
     if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git show failed: ${cleanErr(root, res.stderr)}`);
-    const out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
+    let out = this.policy ? redactDiff(res.stdout, this.policy) : res.stdout;
+    if (objPath && hasPrivateKeyMaterial(out)) {
+      throw new ToolError("ACCESS_DENIED", "blob contains private-key material (content-class refusal)");
+    }
+    out = redactSecretMarkers(out);
     return { repo: true, spec, output: out, truncated: res.truncated };
   }
 

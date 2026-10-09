@@ -123,12 +123,49 @@ const DEFAULT_ALLOW: string[] = [
   ".env.*.template",
 ];
 
+/**
+ * Structural glob validation. minimatch is deliberately forgiving — it treats
+ * `[unclosed` as literal text — so a malformed operator deny rule would load
+ * "successfully" and then silently never match, leaving the operator believing
+ * a path is denied when it is not. Fail closed at startup instead.
+ */
+function isWellFormedGlob(p: string): boolean {
+  const stack: string[] = [];
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i]!;
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c === "[") {
+      // `]` (or `!]`/`^]`) immediately after `[` is a literal, not a close.
+      let j = i + 1;
+      if (p[j] === "!" || p[j] === "^") j++;
+      if (p[j] === "]") j++;
+      stack.push("]");
+      i = j - 1;
+    } else if (c === "{") {
+      stack.push("}");
+    } else if (c === "]" || c === "}") {
+      if (stack.pop() !== c) return false;
+    }
+  }
+  return stack.length === 0;
+}
+
 export class DenyPolicy {
   private readonly deny: DenyRule[];
   private readonly allow: string[];
   private readonly extraCount: number;
 
   constructor(extraDenyPatterns: string[] = []) {
+    // eslint-disable-next-line no-control-regex
+    const BAD_PATTERN = /[\0-\x1f\x7f]/;
+    for (const p of extraDenyPatterns) {
+      if (typeof p !== "string" || p.length === 0 || p.length > 300 || BAD_PATTERN.test(p) || !isWellFormedGlob(p)) {
+        throw new Error(`CONFIG_ERROR: invalid deny pattern ${JSON.stringify(p)}`);
+      }
+    }
     this.deny = [...DEFAULT_DENY, ...extraDenyPatterns.map((p) => ({ pattern: p, reason: "operator-deny" }))];
     this.allow = [...DEFAULT_ALLOW];
     this.extraCount = extraDenyPatterns.length;
