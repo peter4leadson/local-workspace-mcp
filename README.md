@@ -157,7 +157,11 @@ runtime key). See `docs/OPERATIONS.md` for the recovery procedure.
 - Git: argv-only spawns, `--end-of-options`, strict ref allowlist,
   `GIT_TERMINAL_PROMPT=0`, sanitized env, hostile `core.fsmonitor`/
   external-diff config neutralized. Diff redaction checks BOTH sides of a
-  rename — `a/.env → b/innocent.ts` cannot launder denied content.
+  rename — `a/.env → b/innocent.ts` cannot launder denied content — and
+  merge-conflict `diff --cc` blocks are policy-checked too. `git_show` only
+  displays commit/tag objects by bare ref (no raw blob/tree by SHA).
+- Tasks run under the same GIT\_\* hardening, so an allowlisted task invoking
+  `git` cannot execute repo-local config hooks.
 - Search: `rg --json` structured output, so crafted filenames (`:`- or
   newline-containing directories) cannot spoof match attribution; denied
   files produce no match records and no previews.
@@ -175,7 +179,7 @@ runtime key). See `docs/OPERATIONS.md` for the recovery procedure.
 ## Verification
 
 ```sh
-pnpm test                       # 159 vitest cases incl. 23-case adversarial suite
+pnpm test                       # 167 vitest cases incl. 31-case adversarial suite
 scripts/inspector-smoke.sh      # 17-check MCP Inspector CLI battery
 workspace-mcp doctor            # deterministic diagnostics (config, roots, tools)
 pnpm audit --prod               # zero known runtime vulnerabilities

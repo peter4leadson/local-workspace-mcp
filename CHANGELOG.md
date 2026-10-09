@@ -40,6 +40,30 @@ All notable changes to this project are documented here. Format follows
 - Git subprocess config now pins diff prefixes and disables `core.fsmonitor`,
   external diff drivers, and textconv against hostile repo config.
 
+Independent clean-context review round 2 (all remediated + regressed):
+
+- **Fixed HIGH** — `git_show` accepted a bare blob/tree SHA, bypassing every
+  path-based deny (a hostile repo author knows blob SHAs offline). Bare specs
+  are now type-gated via `git cat-file -t`: only commit/tag displayable.
+- **Fixed MED** — merge-conflict `diff --cc`/`diff --combined` blocks evaded
+  `redactDiff` (which only split on `diff --git`). All `diff --*` headers are
+  now path-checked and unparseable forms fail closed.
+- **Fixed MED** — the private-key sniff covered only a file's first 8 KiB;
+  padded key files leaked. Now a whole-file streamed scan in `fs_read` and
+  `fs_search_content`.
+- **Fixed MED** — key-marker redaction masked only the `BEGIN` line while
+  base64 body lines leaked; a marker anywhere in a diff part now suppresses
+  the whole part.
+- **Fixed MED** — `task_run` env lacked git hardening: an allowlisted task
+  invoking `git` ran with live hostile `.git/config` (`core.fsmonitor` →
+  exec). Tasks now inherit the full `GIT_*` isolation set and operator env
+  extras can't set `GIT_*`/interpreter/shell-hook variables.
+- **Fixed LOW** — config symlink and group/world-writable config directory
+  refused; audit log refuses symlinked parent components; `wsPath` and
+  `paths[]` bounded at the schema layer; glob validation catches unbalanced
+  extglob parens and dangling escapes; stderr scrubbing is case-insensitive
+  over configured+canonical roots; SSH2-format key markers detected.
+
 ### Added
 
 - `tests/adversarial.test.ts`: 23-case adversarial suite covering

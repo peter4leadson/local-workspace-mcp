@@ -214,7 +214,7 @@ export class WorkspaceIndex {
           throw new ToolError("ACCESS_DENIED", `permission denied resolving: ${JSON.stringify(toRel(ws.realRoot, candidate))}`);
         }
         if (code !== "ENOENT") {
-          throw new ToolError("INTERNAL_ERROR", `path resolution failed: ${code ?? String(err)}`);
+          throw new ToolError("INTERNAL_ERROR", `path resolution failed: ${code ?? "fs-error"}`);
         }
         const parent = path.dirname(current);
         if (parent === current || !isInside(current, ws.realRoot)) {

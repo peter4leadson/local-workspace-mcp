@@ -125,9 +125,10 @@ export async function gitFileUniverse(root: string, env: Record<string, string>,
   return res.stdout.split("\0").filter(Boolean);
 }
 
-/** Strip absolute root paths from subprocess stderr before surfacing it. */
+/** Strip absolute root paths (any case spelling — APFS is case-insensitive)
+ *  from subprocess stderr before surfacing it. */
 function cleanErr(root: string, s: string): string {
-  return s.split(root).join("<root>").slice(0, 300);
+  return s.replace(new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "<root>").slice(0, 300);
 }
 
 const STAGED_KINDS = new Set(["M", "A", "D", "T", "R", "C"]);
@@ -247,7 +248,8 @@ function diffHeaderCandidates(firstLine: string): { a: string; b: string }[] {
   return out;
 }
 
-const PRIVATE_KEY_MARKER = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|PuTTY-User-Key-File-\d:/;
+const PRIVATE_KEY_MARKER =
+  /-{2,}\s*BEGIN\s+[A-Z0-9 \-]*PRIVATE KEY(?:\s+BLOCK)?\s*-{0,}|PuTTY-User-Key-File-\d:/i;
 
 /** True when a buffer's early bytes carry private-key material — the
  *  name-independent deny layer (a key file renamed `notes.txt` must not
@@ -266,29 +268,73 @@ export function redactSecretMarkers(text: string): string {
     .join("\n");
 }
 
+/** Paths visible in non-`diff --git` headers (`diff --combined`/`diff --cc`
+ *  during merge conflicts, or any future `diff --*` variant): the header tail
+ *  plus every `--- a/`/`+++ b/` line before the first hunk marker. */
+function otherDiffPaths(part: string): string[] {
+  const lines = part.split("\n");
+  const paths: string[] = [];
+  const hdr = /^diff --\S+ (.+)$/.exec(lines[0] ?? "");
+  if (hdr) {
+    const tail = hdr[1]!.trim();
+    const q = parseQuotedToken(tail);
+    paths.push(q ? q.value : tail);
+  }
+  for (const l of lines.slice(1, 16)) {
+    if (l.startsWith("@@")) break;
+    const m = /^(?:---|\+\+\+) (.+)$/.exec(l);
+    if (m) {
+      const q = parseQuotedToken(m[1]!);
+      paths.push((q ? q.value : m[1]!).replace(/^[ab]\//, ""));
+    }
+  }
+  return paths;
+}
+
 /**
  * Redact patch hunks for policy-denied paths from diff-format output. A
  * tracked `.env` (or a `:(glob)` pathspec naming one) must not leak contents
  * through git_diff/git_show just because fs_read denies it. BOTH sides of the
  * `diff --git` pair are checked: a detected rename `a/.env b/safe.txt` would
  * otherwise emit the denied file's hunks under the benign destination name.
- * An unparseable header is redacted (fail closed).
+ * Merge-conflict output uses `diff --combined`/`diff --cc` headers — those
+ * parts are path-checked too. Any part carrying private-key material is
+ * suppressed whole, and any `diff --` part we cannot parse is redacted
+ * (fail closed).
  */
 export function redactDiff(diff: string, policy: DenyPolicy): string {
   return diff
-    .split(/(?=^diff --git )/m)
+    .split(/(?=^diff --)/m)
     .map((part) => {
-      if (!part.startsWith("diff --git ")) return part;
+      if (!part.startsWith("diff --")) return part;
       const firstLine = part.split("\n", 1)[0]!;
-      const candidates = diffHeaderCandidates(firstLine);
-      let reason: string | null = null;
-      if (candidates.length === 0) {
-        reason = "unparseable-diff-header";
-      } else {
-        for (const c of candidates) {
-          reason = policy.check(c.a) ?? policy.check(c.b);
-          if (reason) break;
+      // Content-level: key material in ANY part suppresses that part
+      // entirely — redacting only the marker line would leave the base64
+      // body readable.
+      if (PRIVATE_KEY_MARKER.test(part)) {
+        return `${firstLine}\n[denied-content: private-key material — part suppressed]\n`;
+      }
+      if (part.startsWith("diff --git ")) {
+        const candidates = diffHeaderCandidates(firstLine);
+        let reason: string | null = null;
+        if (candidates.length === 0) {
+          reason = "unparseable-diff-header";
+        } else {
+          for (const c of candidates) {
+            reason = policy.check(c.a) ?? policy.check(c.b);
+            if (reason) break;
+          }
         }
+        if (reason) {
+          return `${firstLine}\n[denied-content: ${reason} — hunks suppressed by sensitive-file policy]\n`;
+        }
+        return part;
+      }
+      // diff --combined / diff --cc / unknown variants.
+      const paths = otherDiffPaths(part).filter((p) => p && p !== "/dev/null");
+      let reason = paths.length === 0 ? "unparseable-diff-header" : null;
+      for (const p of paths) {
+        reason = reason ?? policy.check(p);
       }
       if (reason) {
         return `${firstLine}\n[denied-content: ${reason} — hunks suppressed by sensitive-file policy]\n`;
@@ -452,6 +498,21 @@ export class GitOps {
     if (objPath && this.policy) {
       const reason = this.policy.check(objPath);
       if (reason) throw new ToolError("ACCESS_DENIED", `path denied by policy (${reason})`);
+    }
+    if (!objPath) {
+      // Object-type gate: a bare spec must resolve to a commit or annotated
+      // tag. `git show <blob-sha>` prints raw blob content regardless of
+      // --stat, and the author of an attacker-controlled repo knows blob
+      // SHAs offline — name-based deny can be bypassed entirely without this.
+      // Tree objects are refused too (they leak denied pathnames).
+      const t = await git(root, ["cat-file", "-t", spec], this.opts(64));
+      const type = t.stdout.trim();
+      if (t.exitCode !== 0 || (type !== "commit" && type !== "tag")) {
+        throw new ToolError(
+          "INVALID_ARGUMENT",
+          `show accepts commit/tag refs or 'rev:path' (object type ${JSON.stringify(type || "unknown")} is not displayable)`
+        );
+      }
     }
     const args = objPath
       ? ["show", ...GIT_NO_EXT_DIFF, "--end-of-options", spec]

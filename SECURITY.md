@@ -43,21 +43,22 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 - Deny policy on relative paths and basenames, evaluated on both the lexical
   and resolved path; deny rules and workspace roots live only in the
   operator-owned config file.
-- Content-level private-key marker refusal (name-independent).
+- Content-level private-key marker refusal (name-independent, whole-file).
 - `rg --json` parsing — crafted filenames cannot spoof match attribution.
 - Diff redaction across both sides of renames; fail-closed on unparseable
   headers; historical blob access denied by path and by key material.
 - `spawn` argv only, `shell:false`, `--end-of-options`, strict ref grammar,
   sanitized subprocess env, `GIT_TERMINAL_PROMPT=0`.
 - Bounded everything: bytes, lines, entries, matches, time, output.
-- Metadata-only audit log that refuses to write through symlinks.
+- Metadata-only audit log that refuses to write through a symlinked file or
+  any symlinked parent component.
 - Config permission enforcement (refuses group/world-writable trust root).
 - `pnpm audit --prod` must report zero known vulnerabilities at release.
 
 ## Supported versions
 
-| Version | Status |
-|---|---|
+| Version                 | Status                           |
+| ----------------------- | -------------------------------- |
 | 0.1.0 release candidate | Under corporate-readiness review |
 
 Pre-1.0: only the latest commit on the release branch is supported.

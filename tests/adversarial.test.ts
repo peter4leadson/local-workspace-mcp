@@ -126,6 +126,82 @@ describe("GIT-LEAK: denied content must not escape through diffs", () => {
     expect(["ACCESS_DENIED", "INVALID_ARGUMENT"]).toContain(s.code);
     expect(JSON.stringify(s)).not.toContain("SECRET=one");
   });
+
+  it("F1: bare blob SHA cannot bypass the deny — object type gated", async () => {
+    // The author of an attacker-controlled repo knows blob SHAs offline.
+    const sha = execFileSync("git", ["rev-parse", "HEAD:.env.tracked"], {
+      cwd: f.wsDir,
+      encoding: "utf8",
+    }).trim();
+    const s = await gitOps.show(f.wsDir, sha).catch((e) => e);
+    expect(["ACCESS_DENIED", "INVALID_ARGUMENT"]).toContain(s.code);
+    expect(JSON.stringify(s)).not.toContain("SECRET=one");
+    // A tree SHA must not leak pathnames either.
+    const treeSha = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd: f.wsDir,
+      encoding: "utf8",
+    }).trim();
+    const s2 = await gitOps.show(f.wsDir, treeSha).catch((e) => e);
+    expect(["ACCESS_DENIED", "INVALID_ARGUMENT"]).toContain(s2.code);
+    // Commits remain usable.
+    const c = await gitOps.show(f.wsDir, "HEAD");
+    expect(c.repo).toBe(true);
+    expect(c.output).toContain("commit");
+  });
+
+  it("F2: merge-conflict combined diff of a denied file is suppressed", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-cc-"));
+    try {
+      const g = (a: string[]) => execFileSync("git", a, { cwd: tmp, stdio: "pipe" });
+      g(["init", "-q", "-b", "main"]);
+      g(["config", "user.email", "t@t"]);
+      g(["config", "user.name", "T"]);
+      fs.writeFileSync(path.join(tmp, ".env"), "SECRET=base-777\nshared line\n");
+      g(["add", ".env"]);
+      g(["commit", "-qm", "base"]);
+      g(["checkout", "-qb", "side"]);
+      fs.writeFileSync(path.join(tmp, ".env"), "SECRET=side-888\nshared line\n");
+      g(["commit", "-qam", "side"]);
+      g(["checkout", "-q", "main"]);
+      fs.writeFileSync(path.join(tmp, ".env"), "SECRET=main-999\nshared line\n");
+      g(["commit", "-qam", "main"]);
+      try {
+        g(["merge", "side"]); // conflicts on .env
+      } catch {
+        /* merge exits non-zero on conflict */
+      }
+      const d = await gitOps.diff(tmp, {});
+      const blob = JSON.stringify(d);
+      expect(blob).not.toContain("main-999");
+      expect(blob).not.toContain("side-888");
+      expect(blob).not.toContain("base-777");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("F6: rev:path with '//' or '/./' segments still hits dir-scoped denies", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-norm-"));
+    try {
+      const g = (a: string[]) => execFileSync("git", a, { cwd: tmp, stdio: "pipe" });
+      g(["init", "-q", "-b", "main"]);
+      g(["config", "user.email", "t@t"]);
+      g(["config", "user.name", "T"]);
+      fs.mkdirSync(path.join(tmp, ".ssh"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, ".ssh", "config"), "Host *\n  IdentityFile ~/.ssh/normleak\n");
+      fs.mkdirSync(path.join(tmp, "a"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "a", "ok.txt"), "ok\n");
+      g(["add", "-A"]);
+      g(["commit", "-qm", "init"]);
+      for (const spec of ["HEAD:a//.ssh/config", "HEAD:a/./.ssh/config", "HEAD:a/x/../.ssh/config"]) {
+        const s = await gitOps.show(tmp, spec).catch((e) => e);
+        expect(["ACCESS_DENIED", "INVALID_ARGUMENT"], spec).toContain(s.code);
+        expect(JSON.stringify(s)).not.toContain("normleak");
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("RG-PARSE: search output attribution cannot be spoofed", () => {
@@ -201,6 +277,20 @@ describe("EXEC: task_runner boundaries", () => {
     await new Promise((res) => setTimeout(res, 3500));
     expect(fs.existsSync(marker)).toBe(false);
   }, 15_000);
+
+  it("F5: task subprocess env carries git hardening (hostile .git/config is inert)", async () => {
+    const defs = {
+      "env-dump": { command: ["/usr/bin/env"], timeoutMs: 5000 },
+    };
+    const idx = new WorkspaceIndex({ w: { path: f.wsDir, tasks: ["env-dump"] } }, f.policy);
+    await idx.init();
+    const t = new TaskRunner(idx, defs, f.cfg.limits);
+    const r = await t.run("w", "env-dump");
+    expect(r.stdout).toContain("GIT_CONFIG_NOSYSTEM=1");
+    expect(r.stdout).toContain("GIT_TERMINAL_PROMPT=0");
+    expect(r.stdout).toContain("GIT_LITERAL_PATHSPECS=1");
+    expect(r.stdout).toContain("GIT_CONFIG_GLOBAL=/dev/null");
+  });
 
   it("operator env extras cannot inject secret-named vars; ${PATH} expands", () => {
     const env = sanitizedEnv({
@@ -289,6 +379,41 @@ describe("CONTENT: name-independent secret material", () => {
     );
     await expect(ops.read("test", "notes.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
     fs.rmSync(path.join(f.wsDir, "notes.txt"));
+  });
+
+  it("F3: key material padded past the 8KiB sniff window is still refused", async () => {
+    const p = path.join(f.wsDir, "padded.txt");
+    fs.writeFileSync(
+      p,
+      "x".repeat(12_000) + "\n-----BEGIN PRIVATE KEY-----\nMIIEbody\n-----END PRIVATE KEY-----\n"
+    );
+    try {
+      await expect(ops.read("test", "padded.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+    } finally {
+      fs.rmSync(p);
+    }
+  });
+
+  it("F4: a diff hunk containing key material suppresses the whole part", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lwm-keydiff-"));
+    try {
+      const g = (a: string[]) => execFileSync("git", a, { cwd: tmp, stdio: "pipe" });
+      g(["init", "-q", "-b", "main"]);
+      g(["config", "user.email", "t@t"]);
+      g(["config", "user.name", "T"]);
+      fs.writeFileSync(path.join(tmp, "config.txt"), "setting=1\n");
+      g(["add", "-A"]);
+      g(["commit", "-qm", "init"]);
+      fs.writeFileSync(
+        path.join(tmp, "config.txt"),
+        "setting=1\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7\n-----END RSA PRIVATE KEY-----\n"
+      );
+      const d = await gitOps.diff(tmp, {});
+      expect(d.diff).not.toContain("MIIEpAIBAAKCAQEA7");
+      expect(d.diff).not.toContain("PRIVATE KEY-----");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

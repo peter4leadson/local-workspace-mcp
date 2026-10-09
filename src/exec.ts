@@ -90,6 +90,25 @@ export function runBounded(file: string, args: string[], opts: BoundedOptions): 
   });
 }
 
+/**
+ * Merge operator-supplied task env over a base env. Blocked names cover
+ * secrets AND the dynamic-loader / interpreter / git / shell injection
+ * surface — operator extras can never override the GIT_* hardening keys or
+ * smuggle in a code-exec hook. ${VAR} expands against the base env only.
+ */
+function applyExtras(env: Record<string, string>, extra?: Record<string, string>): Record<string, string> {
+  if (!extra) return env;
+  const blocked =
+    /key|token|secret|pass|^LD_|^DYLD_|^IFS$|^NODE_OPTIONS$|^BASH_ENV$|^ENV$|^SHELLOPTS$|^BASHOPTS$|^ZDOTDIR$|^PROMPT_COMMAND$|^CDPATH$|^GIT_|^PYTHON|^PERL|^RUBY/i;
+  for (const [k, v] of Object.entries(extra)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(k) || blocked.test(k)) continue;
+    // ${VAR} expands against the base env — lets task defs prepend a
+    // toolchain dir to PATH without hardcoding the whole PATH.
+    env[k] = v.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name: string) => env[name] ?? "");
+  }
+  return env;
+}
+
 /** Minimal sanitized environment inherited by git/task subprocesses. */
 export function sanitizedEnv(extra?: Record<string, string>): Record<string, string> {
   const allow = ["PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM"];
@@ -100,19 +119,7 @@ export function sanitizedEnv(extra?: Record<string, string>): Record<string, str
   }
   // Node toolchain shims must resolve even when the host env is minimal.
   env.PATH = env.PATH && env.PATH.length > 0 ? env.PATH : "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin";
-  if (extra) {
-    // Operator-supplied task env: blocked names cover secrets AND the dynamic-
-    // loader / interpreter / git injection surface. PATH is allowed (needed
-    // for toolchain selection) — it is operator-configured, not repo data.
-    const blocked = /key|token|secret|pass|^LD_|^DYLD_|^NODE_OPTIONS$|^BASH_ENV$|^ENV$|^GIT_DIR$|^GIT_WORK_TREE$|^GIT_SSH|^GIT_CONFIG|^GIT_EXEC_PATH/i;
-    for (const [k, v] of Object.entries(extra)) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(k) || blocked.test(k)) continue;
-      // ${VAR} expands against the sanitized base env — lets task defs prepend
-      // a toolchain dir to PATH without hardcoding the whole PATH.
-      env[k] = v.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name: string) => env[name] ?? "");
-    }
-  }
-  return env;
+  return applyExtras(env, extra);
 }
 
 /** Sanitized env tuned for git read operations: no prompts, no credential
@@ -126,4 +133,15 @@ export function gitEnv(): Record<string, string> {
   env.GIT_CONFIG_GLOBAL = "/dev/null";
   env.GIT_LITERAL_PATHSPECS = "1";
   return env;
+}
+
+/**
+ * Task subprocess env: the sanitized base PLUS git hardening. An allowlisted
+ * task may invoke `git` — without these keys the attacker-controlled
+ * repo .git/config is live inside the task (`core.fsmonitor` execs on
+ * `git status`, `include.path` chains further config). Operator extras apply
+ * last via applyExtras (GIT_* names are blocked there).
+ */
+export function taskEnv(extra?: Record<string, string>): Record<string, string> {
+  return applyExtras(gitEnv(), extra);
 }

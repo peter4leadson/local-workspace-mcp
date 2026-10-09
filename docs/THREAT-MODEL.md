@@ -25,38 +25,41 @@ config is trusted; everything reachable under a root is untrusted data.
 
 ## Mitigations by threat class (OWASP MCP-informed)
 
-| Threat                                                     | Control                                                                                                                                          | Proof                           |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
-| Path traversal `../`                                       | lexical containment vs realRoot pre-realpath; absolute inputs must be in-root                                                                    | `paths.test.ts` traversal cases |
-| Symlink escape                                             | `realpathWithinRoot` resolves target or deepest existing ancestor; containment re-verified on canonical path; ELOOP rejected                     | symlink fixture tests           |
-| Mid-path symlink ancestor                                  | ancestor-walk resolves each component chain                                                                                                      | `link-out/pwned.txt` test       |
-| Case tricks (APFS)                                         | `isInside` compares canonical realpaths case-insensitively; realpath returns on-disk case                                                        | case-variant test               |
-| Encoded traversal `%2e%2e`                                 | treated as literal name → NOT_FOUND; never decoded into separators                                                                               | encoded test                    |
-| `~` home expansion                                         | rejected outright (`ACCESS_DENIED`)                                                                                                              | test                            |
-| NUL/control chars, Windows drives                          | input hygiene rejections                                                                                                                         | tests                           |
-| Sensitive files                                            | deny policy on lexical + resolved rel path (covers in-root symlink → `.env`); default rules in `policy.ts`; explicit template allowlist          | policy tests (100+ cases)       |
-| Sensitive file renamed to benign name                      | content sniff: `BEGIN … PRIVATE KEY` markers refused in fs_read/git_show blobs/search previews regardless of filename                            | adversarial CONTENT tests       |
-| Rename-laundered diff (`a/.env` → `b/safe.ts`)             | `redactDiff` checks BOTH sides of every `diff --git` header candidate; unparseable headers redact (fail closed)                                  | adversarial rename test         |
-| Search attribution spoofing (`x:1:y/` dirs, newline names) | `rg --json` structured output; no `path:line:text` parsing; denied files emit no records                                                         | adversarial RG-PARSE tests      |
-| Absolute-path leak via errors                              | `mapFsError` converts errno failures to bounded rel-path `ToolError`s; rg/git stderr scrubbed of workspace root                                  | adversarial error tests         |
-| Symlinked audit path → arbitrary append                    | `lstat` refuse-before-append on the audit file                                                                                                   | adversarial audit test          |
-| Malformed operator deny glob silently dead                 | structural bracket-balance validation at `DenyPolicy` construction — load fails closed                                                           | adversarial config test         |
-| Config trust-root tampering                                | group/world-writable config refused (`mode & 0o022`); missing config → actionable `CONFIG_ERROR`                                                 | adversarial config tests        |
-| Private-key material in history                            | `git show rev:path` denies policy-matching blob paths AND refuses key-material blobs                                                             | adversarial show test           |
-| `.git` internals                                           | `.git/**` denied — protects credentialed remote config & object store                                                                            | test + smoke                    |
-| Option injection into git                                  | strict ref allowlist + `--end-of-options` + `--` path separator + argv spawn                                                                     | ref-validation tests            |
-| Shell injection                                            | no shell anywhere (`spawn` argv, `shell:false`); task ids validated; task argv is operator-fixed                                                 | task tests                      |
-| Confused deputy                                            | caller picks workspace id + task id only; command text never crosses the boundary                                                                | TASK_DENIED tests               |
-| Env/secret leakage                                         | subprocess env = sanitized allowlist (PATH/HOME/…); `GIT_TERMINAL_PROMPT=0`; task `env` rejects key/secret/token-named vars                      | `env-dump` test                 |
-| Resource exhaustion                                        | caps everywhere: read bytes/lines, list entries, search results+deadline (rg), readMany totals, git output, task output+timeout, file-size limit | limit tests                     |
-| Large-output context flood                                 | structured `truncated`/`nextStartLine`/`nextOffset` metadata                                                                                     | tests                           |
-| ReDoS                                                      | content search delegated to ripgrep (linear-time engine); pattern length cap                                                                     | —                               |
-| Binary dump                                                | NUL-probe → BINARY_FILE refusal                                                                                                                  | test                            |
-| Malicious repo content                                     | files are data; they cannot alter roots/deny/tasks — those live in operator config                                                               | INJECTION.txt test              |
-| Tool-scope creep                                           | V1 has no write/edit/delete/exec tools; `task_run` marked non-readOnly                                                                           | annotation checks               |
-| Secrets in logs                                            | audit = JSONL metadata only (no contents, no abs paths, no env)                                                                                  | code review + test              |
-| Supply chain                                               | pinned exact versions + committed lockfile; 3 runtime deps                                                                                       | package.json/pnpm-lock          |
-| Public exposure                                            | stdio only; no listener; tunnel client is outbound-only                                                                                          | architecture                    |
+| Threat                                                     | Control                                                                                                                                                     | Proof                           |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Path traversal `../`                                       | lexical containment vs realRoot pre-realpath; absolute inputs must be in-root                                                                               | `paths.test.ts` traversal cases |
+| Symlink escape                                             | `realpathWithinRoot` resolves target or deepest existing ancestor; containment re-verified on canonical path; ELOOP rejected                                | symlink fixture tests           |
+| Mid-path symlink ancestor                                  | ancestor-walk resolves each component chain                                                                                                                 | `link-out/pwned.txt` test       |
+| Case tricks (APFS)                                         | `isInside` compares canonical realpaths case-insensitively; realpath returns on-disk case                                                                   | case-variant test               |
+| Encoded traversal `%2e%2e`                                 | treated as literal name → NOT_FOUND; never decoded into separators                                                                                          | encoded test                    |
+| `~` home expansion                                         | rejected outright (`ACCESS_DENIED`)                                                                                                                         | test                            |
+| NUL/control chars, Windows drives                          | input hygiene rejections                                                                                                                                    | tests                           |
+| Sensitive files                                            | deny policy on canonical relative path + basename, `..`-normalized (covers in-root symlink → `.env` and `a/../.env` spellings); explicit template allowlist | policy tests (100+ cases)       |
+| Sensitive file renamed to benign name                      | whole-file streamed scan for `BEGIN … PRIVATE KEY` markers — refused in fs_read/git_show blobs/search previews regardless of filename                       | adversarial CONTENT tests       |
+| Rename-laundered diff (`a/.env` → `b/safe.ts`)             | `redactDiff` checks BOTH sides of every `diff --git` header candidate; unparseable headers redact (fail closed)                                             | adversarial rename test         |
+| Merge-conflict combined diffs (`diff --cc`/`--combined`)   | non-`--git` diff headers path-checked via `---/+++` lines; unknown `diff --*` forms redact                                                                  | adversarial merge test          |
+| Bare object-SHA read (`git show <blob-sha>`)               | `cat-file -t` type gate: bare specs must resolve to commit/tag; blob access only via policy-checked `rev:path`                                              | adversarial SHA test            |
+| Hostile `.git/config` inside allowlisted tasks             | task subprocesses inherit `GIT_CONFIG_NOSYSTEM`/`GIT_CONFIG_GLOBAL=/dev/null`/`GIT_LITERAL_PATHSPECS`; operator env can't set `GIT_*`                       | adversarial env test            |
+| Search attribution spoofing (`x:1:y/` dirs, newline names) | `rg --json` structured output; no `path:line:text` parsing; denied files emit no records                                                                    | adversarial RG-PARSE tests      |
+| Absolute-path leak via errors                              | `mapFsError` converts errno failures to bounded rel-path `ToolError`s; rg/git stderr scrubbed of workspace roots (case-insensitive, configured+canonical)   | adversarial error tests         |
+| Symlinked audit path → arbitrary append                    | `lstat` refuse-before-append on the audit file AND every parent directory component                                                                         | adversarial audit test          |
+| Malformed operator deny glob silently dead                 | structural bracket-balance validation at `DenyPolicy` construction — load fails closed                                                                      | adversarial config test         |
+| Config trust-root tampering                                | group/world-writable config refused (`mode & 0o022`); missing config → actionable `CONFIG_ERROR`                                                            | adversarial config tests        |
+| Private-key material in history                            | `git show rev:path` denies policy-matching blob paths AND refuses key-material blobs                                                                        | adversarial show test           |
+| `.git` internals                                           | `.git/**` denied — protects credentialed remote config & object store                                                                                       | test + smoke                    |
+| Option injection into git                                  | strict ref allowlist + `--end-of-options` + `--` path separator + argv spawn                                                                                | ref-validation tests            |
+| Shell injection                                            | no shell anywhere (`spawn` argv, `shell:false`); task ids validated; task argv is operator-fixed                                                            | task tests                      |
+| Confused deputy                                            | caller picks workspace id + task id only; command text never crosses the boundary                                                                           | TASK_DENIED tests               |
+| Env/secret leakage                                         | subprocess env = sanitized allowlist (PATH/HOME/…); `GIT_TERMINAL_PROMPT=0`; task `env` rejects key/secret/token-named vars                                 | `env-dump` test                 |
+| Resource exhaustion                                        | caps everywhere: read bytes/lines, list entries, search results+deadline (rg), readMany totals, git output, task output+timeout, file-size limit            | limit tests                     |
+| Large-output context flood                                 | structured `truncated`/`nextStartLine`/`nextOffset` metadata                                                                                                | tests                           |
+| ReDoS                                                      | content search delegated to ripgrep (linear-time engine); pattern length cap                                                                                | —                               |
+| Binary dump                                                | NUL-probe → BINARY_FILE refusal                                                                                                                             | test                            |
+| Malicious repo content                                     | files are data; they cannot alter roots/deny/tasks — those live in operator config                                                                          | INJECTION.txt test              |
+| Tool-scope creep                                           | V1 has no write/edit/delete/exec tools; `task_run` marked non-readOnly                                                                                      | annotation checks               |
+| Secrets in logs                                            | audit = JSONL metadata only (no contents, no abs paths, no env)                                                                                             | code review + test              |
+| Supply chain                                               | pinned exact versions + committed lockfile; 3 runtime deps                                                                                                  | package.json/pnpm-lock          |
+| Public exposure                                            | stdio only; no listener; tunnel client is outbound-only                                                                                                     | architecture                    |
 
 ## Adversarial findings ledger (2026-10-09 round, all remediated + regressed)
 
@@ -77,6 +80,22 @@ the following against `b87b0a3`; all closed in `d3e0db2` + `bdbdb28`:
 | S-10 | HIGH (supply)  | minimatch@10.0.3 → 3 ReDoS CVEs reachable via caller-supplied globs → pinned 10.2.6.                                        |
 | S-11 | MED (dev-only) | vitest@3.2.4 → 5 advisories (3 critical, dev-only) → pinned 4.1.11; `pnpm audit` clean.                                     |
 
+Independent clean-context review (second round) added:
+
+| F-1 | HIGH | `git show <blob-sha>` bypassed name-based denies → `cat-file -t` type gate: bare specs must be commit/tag. |
+| F-2 | MED | merge-conflict `diff --cc`/`--combined` evaded `redactDiff` → all `diff --*` headers path-checked, fail-closed. |
+| F-3 | MED | key sniff covered only first 8 KiB → whole-file streamed scan. |
+| F-4 | MED | marker line redacted but key body lines passed → whole-part suppression. |
+| F-5 | MED | `task_run` env lacked GIT*\* hardening → hostile `.git/config` inert under tasks. |
+| F-6 | MED | `rev:path` `//`/`/./`/`..` spellings → normalized in `policy.check` + tested. |
+| F-7 | LOW | config symlink/dir perms unchecked → lstat refuse + dir `0o022` mask. |
+| F-8 | LOW | audit leaf-symlink check missed parent components → per-component lstat. |
+| F-9 | LOW | `wsPath`/`paths[]` unbounded in schema → `.max(4096)`. |
+| F-10 | LOW | glob validation missed unbalanced extglob parens/trailing escape → tracked. |
+| F-11 | LOW | stderr scrub exact-string only → case-insensitive, configured+canonical roots. |
+| F-12 | LOW | task env blocklist gaps → `^GIT*`/`^PYTHON`/`^PERL`/`^RUBY`/shell-hook vars blocked. |
+| F-13 | LOW | SSH2-format key markers missed → flexible-dash regex. |
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
@@ -90,7 +109,10 @@ the following against `b87b0a3`; all closed in `d3e0db2` + `bdbdb28`:
    name; worktree `HEAD` data remains accessible via git tools — intended.
 4. **File metadata leakage**: directory listings reveal names of denied files
    (flagged, not hidden) — deliberate trade-off for debuggability; contents
-   and outside-root names are never exposed.
+   and outside-root names are never exposed. `fs_search_files` similarly
+   reports a `deniedFiltered` count (an existence oracle, not a content one);
+   `fs_search_content` suppresses denied matches entirely so previews can
+   never become a content oracle.
 5. **Unicode NFC**: `realpath` returns canonical on-disk names; files whose
    names differ only by normalization resolve to the same canonical path —
    containment unaffected.

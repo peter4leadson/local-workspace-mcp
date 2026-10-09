@@ -1,4 +1,4 @@
-import { runBounded, sanitizedEnv } from "./exec.js";
+import { runBounded, taskEnv } from "./exec.js";
 import { ToolError, WorkspaceIndex } from "./paths.js";
 import type { Limits, TaskDefinition } from "./config.js";
 
@@ -46,7 +46,7 @@ export class TaskRunner {
       cwd,
       timeoutMs,
       maxOutputBytes: this.limits.maxTaskOutputBytes,
-      env: sanitizedEnv(def.env),
+      env: taskEnv(def.env),
     });
     return {
       workspace: workspaceId,

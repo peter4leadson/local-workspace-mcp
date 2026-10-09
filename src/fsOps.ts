@@ -45,6 +45,17 @@ export interface ListEntry {
  * Map raw fs errors to bounded ToolErrors. Raw `ENOENT`/`EACCES` messages
  * embed the absolute host path; callers must never see those.
  */
+/** Strip workspace root paths (any case spelling — APFS is case-insensitive)
+ *  from text before it can surface in a tool response. */
+export function scrubRoots(s: string, roots: (string | undefined)[]): string {
+  let out = s;
+  for (const r of roots) {
+    if (!r) continue;
+    out = out.replace(new RegExp(r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "<root>");
+  }
+  return out;
+}
+
 function mapFsError(err: unknown, rel: string): ToolError {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   switch (code) {
@@ -170,6 +181,28 @@ export class FsOps {
     }
   }
 
+  /**
+   * Whole-file scan for private-key markers. The head-only sniff is not a
+   * boundary: key material padded past 8 KiB must still be refused. Streams
+   * line-by-line and exits on first hit, so the common case stays cheap.
+   */
+  private async fileHasKeyMaterial(canonical: string): Promise<boolean> {
+    const rl = readline.createInterface({
+      input: createReadStream(canonical, { encoding: "utf8" }),
+      crlfDelay: Infinity,
+    });
+    try {
+      for await (const line of rl) {
+        if (hasPrivateKeyMaterial(line)) return true;
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      rl.close();
+    }
+  }
+
   async read(
     workspace: string,
     inputPath: string,
@@ -193,7 +226,7 @@ export class FsOps {
     if (sniff.binary) {
       throw new ToolError("BINARY_FILE", `binary file; refusing to emit content: ${r.rel} (${st.size} bytes)`);
     }
-    if (sniff.secret) {
+    if (sniff.secret || (await this.fileHasKeyMaterial(r.canonical))) {
       throw new ToolError("ACCESS_DENIED", `file contains private-key material (content-class refusal): ${r.rel}`);
     }
 
@@ -421,7 +454,7 @@ export class FsOps {
     // rg exits 1 for "no matches"; that is not an error. stderr is scrubbed of
     // absolute workspace paths before it can surface to the caller.
     if (result.exitCode !== 0 && result.exitCode !== 1 && !result.timedOut) {
-      const cleanStderr = result.stderr.split(r.ws.realRoot).join("<root>").slice(0, 300);
+      const cleanStderr = scrubRoots(result.stderr, [r.ws.realRoot, r.ws.configuredPath]).slice(0, 300);
       throw new ToolError("INVALID_ARGUMENT", `search failed (rg exit ${result.exitCode}): ${cleanStderr}`);
     }
 
@@ -463,7 +496,8 @@ export class FsOps {
       }
       if (!sniffed.has(abs)) {
         try {
-          sniffed.set(abs, (await this.sniff(abs, rel)).secret);
+          // Whole-file scan — a head-only sniff misses padded keys.
+          sniffed.set(abs, await this.fileHasKeyMaterial(abs));
         } catch {
           sniffed.set(abs, false);
         }

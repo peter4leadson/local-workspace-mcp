@@ -71,12 +71,18 @@ export interface LoadedConfig extends RawConfig {
 }
 
 /** The config file is the trust root: it defines authorized roots and
- *  task argv. A group/world-writable config is a privilege boundary hole —
- *  fail closed. */
+ *  task argv. A symlinked config or a group/world-writable file or
+ *  containing directory is a privilege boundary hole — fail closed. */
 export function checkConfigPermissions(configPath = defaultConfigPath()): { ok: boolean; mode: string } {
+  const lst = fs.lstatSync(configPath);
+  if (lst.isSymbolicLink()) {
+    return { ok: false, mode: "symlink" };
+  }
   const st = fs.statSync(configPath);
   const mode = st.mode & 0o777;
-  return { ok: (mode & 0o022) === 0, mode: mode.toString(8) };
+  const dirMode = fs.statSync(path.dirname(configPath)).mode & 0o777;
+  const ok = (mode & 0o022) === 0 && (dirMode & 0o022) === 0;
+  return { ok, mode: mode.toString(8) };
 }
 
 export function loadConfig(configPath = defaultConfigPath()): LoadedConfig {

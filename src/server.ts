@@ -18,6 +18,7 @@ const workspaceId = z
   .describe("Workspace id from workspace_roots, e.g. 'onramp'.");
 const wsPath = z
   .string()
+  .max(4096)
   .describe("Path relative to the workspace root, e.g. 'src/index.ts'. Use '.' or omit for the root. Absolute paths are only accepted if inside the workspace.");
 
 interface Deps {
@@ -180,7 +181,7 @@ export function createServer(deps: Deps): McpServer {
         "missing, binary) are reported inline without aborting the batch. A total response cap applies.",
       inputSchema: {
         workspace: workspaceId,
-        paths: z.array(z.string()).min(1).max(32).describe("Workspace-relative paths (max 32)."),
+        paths: z.array(z.string().max(4096)).min(1).max(32).describe("Workspace-relative paths (max 32)."),
         maxBytesPerFile: z.number().int().min(256).max(256000).optional(),
       },
       annotations: RO,

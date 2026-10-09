@@ -30,17 +30,34 @@ export class AuditLog {
     }
   }
 
-  record(e: AuditEvent): void {
-    if (!this.file) return;
-    // Never write through a symlink: if an attacker-in-root managed to place a
-    // link at the audit path (e.g. when an operator points the log inside a
-    // watched workspace), appending must not become a write primitive outside
-    // the intended file.
+  /**
+   * Never write through a symlink: if an attacker-in-root managed to place a
+   * link at the audit path — or at ANY parent component (e.g. the operator
+   * points the log at `ws/logs/audit.jsonl` and `ws/logs` is a link) —
+   * appending must not become a write primitive outside the intended file.
+   */
+  private safeToWrite(): boolean {
+    if (!this.file) return false;
     try {
-      if (fs.lstatSync(this.file).isSymbolicLink()) return;
+      if (fs.lstatSync(this.file).isSymbolicLink()) return false;
     } catch {
       /* ENOENT: file does not exist yet — append will create it */
     }
+    const dir = path.dirname(this.file);
+    let cur = path.isAbsolute(dir) ? path.parse(dir).root : ".";
+    for (const seg of dir.split(path.sep).filter(Boolean)) {
+      cur = path.join(cur, seg);
+      try {
+        if (fs.lstatSync(cur).isSymbolicLink()) return false;
+      } catch {
+        return false; // unreadable/missing component — fail closed
+      }
+    }
+    return true;
+  }
+
+  record(e: AuditEvent): void {
+    if (!this.file || !this.safeToWrite()) return;
     const line = JSON.stringify({ ts: new Date().toISOString(), ...e }) + "\n";
     try {
       fs.appendFile(this.file, line, { mode: 0o600 }, () => {});

@@ -131,11 +131,15 @@ const DEFAULT_ALLOW: string[] = [
  * a path is denied when it is not. Fail closed at startup instead.
  */
 function isWellFormedGlob(p: string): boolean {
+  // A dangling escape would silently match nothing/literal — fail closed.
+  if (/\\$/.test(p.replace(/\\\\/g, "xx"))) return false;
   const stack: string[] = [];
+  let prev = "";
   for (let i = 0; i < p.length; i++) {
     const c = p[i]!;
     if (c === "\\") {
       i++;
+      prev = "";
       continue;
     }
     if (c === "[") {
@@ -145,11 +149,20 @@ function isWellFormedGlob(p: string): boolean {
       if (p[j] === "]") j++;
       stack.push("]");
       i = j - 1;
-    } else if (c === "{") {
+      prev = "";
+      continue;
+    }
+    if (c === "{") {
       stack.push("}");
+    } else if (c === "(") {
+      // `(` only opens an extglob group after ! @ ? * + — otherwise literal.
+      if ("!@?*+".includes(prev)) stack.push(")");
     } else if (c === "]" || c === "}") {
       if (stack.pop() !== c) return false;
+    } else if (c === ")") {
+      if (stack[stack.length - 1] === ")") stack.pop(); // stray ')' is literal
     }
+    prev = c;
   }
   return stack.length === 0;
 }
