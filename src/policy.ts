@@ -1,3 +1,4 @@
+import path from "node:path";
 import { minimatch } from "minimatch";
 
 /**
@@ -180,7 +181,15 @@ export class DenyPolicy {
    * or null when allowed. `relPath` must use "/" separators.
    */
   check(relPath: string): string | null {
-    const rel = relPath.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+    // Normalize `..`/`.` segments to the caller's intent: `a/../.env` is the
+    // `.env` file regardless of how the path was spelled. minimatch treats
+    // `..` as a literal segment, so without normalization a path containing
+    // it could slip past `**/name` deny rules (fail-closed direction: only
+    // makes deny MORE likely, never less).
+    const rel = path.posix
+      .normalize(relPath.replace(/\\/g, "/"))
+      .replace(/^\.\//, "")
+      .replace(/^\/+/, "");
     const base = rel.split("/").pop() ?? rel;
     // Operator extras win over the built-in template allowlist: explicit
     // operator intent can re-deny a shipped allow rule.

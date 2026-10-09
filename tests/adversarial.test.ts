@@ -114,6 +114,18 @@ describe("GIT-LEAK: denied content must not escape through diffs", () => {
     const s = await gitOps.show(f.wsDir, "HEAD:.env.tracked").catch((e) => e);
     expect(s.code === "ACCESS_DENIED" || s.repo === false).toBe(true);
   });
+
+  it("policy normalizes '..' segments — 'a/../.env' is still denied", () => {
+    expect(f.policy.check("a/../.env")).toBe("dotenv");
+    expect(f.policy.check("sub/../.ssh/id_rsa")).toBe("ssh");
+    expect(f.policy.check("../outside.txt")).toBeNull(); // containment's job, not policy's
+  });
+
+  it("git show '..' blob path cannot bypass the deny", async () => {
+    const s = await gitOps.show(f.wsDir, "HEAD:a/../.env.tracked").catch((e) => e);
+    expect(["ACCESS_DENIED", "INVALID_ARGUMENT"]).toContain(s.code);
+    expect(JSON.stringify(s)).not.toContain("SECRET=one");
+  });
 });
 
 describe("RG-PARSE: search output attribution cannot be spoofed", () => {
