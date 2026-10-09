@@ -21,9 +21,8 @@ scripts/inspector-smoke.sh <workspace-id>   # MCP protocol battery
 ```
 
 While the repository is private, changes arrive as commits on the release
-branch by the owner. Once public: conventional-commit PRs, green `pnpm test`
-
-- `pnpm typecheck` required.
+branch by the owner. Once public: conventional-commit PRs with green
+`pnpm test` and `pnpm typecheck` are required.
 
 ## Rules that are not negotiable
 
