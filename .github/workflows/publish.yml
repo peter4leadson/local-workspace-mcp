@@ -1,0 +1,91 @@
+name: publish
+
+# Trusted-publishing release workflow for local-workspace-mcp.
+#
+# Flow: GitHub Release (or manual dispatch) → full verify → `npm stage
+# publish` via OIDC → owner approves the staged release on npmjs.com.
+#
+# - No long-lived npm tokens anywhere. npm authenticates the job by OIDC.
+# - Stage-only: the workflow never calls bare `npm publish`; a human with
+#   npm 2FA approves the staged version before it goes live.
+# - The `npm-release` environment requires owner approval before this job
+#   starts (Settings → Environments → npm-release → required reviewers).
+# - npm-side: the trusted publisher must be registered on npmjs.com →
+#   package Settings → Trusted Publisher (GitHub Actions, repo
+#   peter4leadson/local-workspace-mcp, workflow `publish.yml`,
+#   environment `npm-release`, action `npm stage publish`). Register it
+#   only when a release is imminent — unvalidated registrations expire.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.2.0 (must equal package.json version and the git tag v<version>)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for npm trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-release # required-reviewers gate: owner approval before any publish step
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          run_install: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: npm CLI with OIDC + staged publishing (>=11.15)
+        run: npm install -g npm@latest && npm --version
+      - name: Install ripgrep (fs_search_content dependency)
+        run: sudo apt-get install -y ripgrep
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Build
+        run: pnpm build
+      - name: Test (unit + adversarial)
+        run: pnpm test
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+      - name: Pack sanity — tarball contains only dist + docs
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          ! grep -qE 'src/|tests/|\.ts$|\.map$' /tmp/pack.txt
+      - name: SBOM
+        run: node scripts/sbom.mjs > sbom.cdx.json && head -5 sbom.cdx.json
+      - name: Version/tag consistency + not already published
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').version")
+          # Expected version comes from the release tag (vX.Y.Z) or dispatch input
+          if [ -n "$RELEASE_TAG" ]; then EXPECT="${RELEASE_TAG#v}"; else EXPECT="$DISPATCH_VERSION"; fi
+          [ -n "$EXPECT" ] || { echo "no version resolved"; exit 1; }
+          [ "$PKG" = "$EXPECT" ] || { echo "package.json version $PKG != release version $EXPECT"; exit 1; }
+          # Tag must exist and point at this commit
+          git rev-parse "v$EXPECT^{commit}" >/dev/null 2>&1 || { echo "tag v$EXPECT missing from checkout"; exit 1; }
+          [ "$(git rev-parse "v$EXPECT^{commit}")" = "$GITHUB_SHA" ] || { echo "tag v$EXPECT does not point at $GITHUB_SHA"; exit 1; }
+          # Refuse to republish an existing version
+          if npm view "local-workspace-mcp@$EXPECT" version >/dev/null 2>&1; then
+            echo "local-workspace-mcp@$EXPECT already published — refusing duplicate"; exit 1;
+          fi
+          echo "version $EXPECT: consistent, tagged, unpublished"
+      - name: Stage publish to npm (OIDC, owner approves on npmjs.com)
+        run: npm stage publish --access public
+        # No --provenance flag: npm attaches build provenance automatically
+        # when authenticating via OIDC trusted publishing.
