@@ -292,7 +292,7 @@ registry; public npm + MCP registry listing only after owner sign-off.
 local-workspace-mcp` → active, `isLatest: true`.
 - Note: the first publish predates trusted-publisher configuration (npm
   requires the package to exist first). `.github/workflows/publish.yml`
-  (SHA `dcb1eef`) now implements OIDC trusted publishing: `npm-release`
+  (SHA `0223f3f`) now implements OIDC trusted publishing: `npm-release`
   environment with owner as required reviewer, `id-token: write` only,
   full verify pipeline, version/tag consistency + no-duplicate checks,
   `npm stage publish` only (owner approves on npmjs.com). Reviewed
