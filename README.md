@@ -84,7 +84,7 @@ has no eyes.
 
 ## Usage examples
 
-```sh
+```text
 # what the assistant can ask for
 workspace_roots                        # authorized workspace ids, no host paths
 fs_list   {workspace:"myproj"}
@@ -100,11 +100,11 @@ task_run  {workspace:"myproj", taskId:"typecheck"}
 Denied behavior is explicit, never silent:
 
 ```text
-fs_read {path:".env"}              → ACCESS_DENIED  (or NOT_FOUND if absent)
-fs_read {path:"../../etc/passwd"}  → OUTSIDE_ROOT
-task_run {taskId:"nuke"}           → TASK_DENIED    (valid id, not enabled)
-task_run {taskId:"rm -rf /"}       → INVALID_ARGUMENT (malformed task id)
-git_show {spec:"--exec"}           → INVALID_ARGUMENT
+fs_read {workspace:"myproj", path:".env"}              → ACCESS_DENIED  (or NOT_FOUND if absent)
+fs_read {workspace:"myproj", path:"../../etc/passwd"}  → OUTSIDE_ROOT
+task_run {workspace:"myproj", taskId:"nuke"}           → TASK_DENIED    (valid id, not enabled)
+task_run {workspace:"myproj", taskId:"rm -rf /"}       → INVALID_ARGUMENT (malformed task id)
+git_show {workspace:"myproj", spec:"--exec"}           → INVALID_ARGUMENT
 ```
 
 Denial codes are the policy working as intended, not errors to report;
@@ -280,7 +280,7 @@ Common `limits` keys (key: default): `maxReadFileBytes`: 5 MB file-size
 ceiling for reads, `defaultReadBytes`: 64 KiB per read,
 `maxSearchResults`: 200, `searchDeadlineMs`: 20 s, `gitTimeoutMs`: 15 s,
 `maxTaskOutputBytes`: 64 KiB, `walkEntryCap`/`walkDepthCap`: 50k entries /
-20 deep. Full schema with bounds: [src/config.ts](src/config.ts). Callers can pass
+20 deep. Full schema with bounds: `src/config.ts` in the repository. Callers can pass
 `timeoutMs` to `task_run` to shorten a task's timeout; it can never
 exceed the configured value or the 300 s hard cap.
 
