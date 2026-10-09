@@ -291,9 +291,17 @@ registry; public npm + MCP registry listing only after owner sign-off.
 - Registry API: `registry.modelcontextprotocol.io/v0/servers?search=
 local-workspace-mcp` → active, `isLatest: true`.
 - Note: the first publish predates trusted-publisher configuration (npm
-  requires the package to exist first). npmjs.com → package Settings →
-  Trusted Publisher (repo `peter4leadson/local-workspace-mcp`) +
-  `.github/workflows/publish.yml` is the recommended path for v0.2+.
+  requires the package to exist first). `.github/workflows/publish.yml`
+  (SHA `dcb1eef`) now implements OIDC trusted publishing: `npm-release`
+  environment with owner as required reviewer, `id-token: write` only,
+  full verify pipeline, version/tag consistency + no-duplicate checks,
+  `npm stage publish` only (owner approves on npmjs.com). Reviewed
+  independently; defects fixed. Remaining npm-side step: register the
+  trusted publisher (package Settings → Trusted Publisher → GitHub
+  Actions, repo `peter4leadson/local-workspace-mcp`, workflow
+  `publish.yml`, environment `npm-release`, stage-publish action) —
+  coordinate with the next real release; unvalidated registrations expire
+  within ~2 days.
 
 ## 9. Costs
 
