@@ -6,16 +6,16 @@ hosting, npm identity, registry submission, remote attach for CI proof).
 Security disposition: SHIP, independently reviewed at `a3fe113` plus
 verified deltas through `0c9450e`. Do not publish until the owner acts.
 
-|                    |                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| Canonical source   | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote)                            |
-| Implementation SHA | `a3fe113e0f6c7983a7917ae8eae86cce8c19d01a` (security verdict bound here)                         |
-| Candidate SHA      | updated below after the 2026-10-09 second-pass EA remediation (see §3a)                          |
-| Private remote     | `github.com/peter4leadson/local-workspace-mcp` — visibility PRIVATE, verified pre- and post-push |
-| Release branch     | `release/mcp-corporate-readiness-2026-10-09`                                                     |
-| Release worktree   | `local-workspace-mcp-release/` (isolated; live hosts run their own install)                      |
-| Package            | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`                             |
-| Runtime            | Node ≥20, pnpm 10.18.2 pinned by hash                                                            |
+|                    |                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Canonical source   | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote)                                        |
+| Implementation SHA | `a3fe113e0f6c7983a7917ae8eae86cce8c19d01a` (security verdict bound here)                                     |
+| Candidate SHA      | `725b2e7abcf8c0ea2394df5d01df23e01abdc42e` (second-pass EA remediation; this ledger rides one commit higher) |
+| Private remote     | `github.com/peter4leadson/local-workspace-mcp` — visibility PRIVATE, verified pre- and post-push             |
+| Release branch     | `release/mcp-corporate-readiness-2026-10-09`                                                                 |
+| Release worktree   | `local-workspace-mcp-release/` (isolated; live hosts run their own install)                                  |
+| Package            | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`                                         |
+| Runtime            | Node ≥20, pnpm 10.18.2 pinned by hash                                                                        |
 
 ## 1. What this is
 
@@ -39,9 +39,9 @@ boundary inventory in `docs/THREAT-MODEL.md`.
 | G4 MCP protocol assurance          | PASS            | `scripts/inspector-smoke.sh` — 17/17 on the `0c9450e` build; 14/14 tools, annotations, stdio purity                                                                                                                                                                       |
 | G5 Supply-chain assurance          | PASS            | `pnpm audit` clean prod+dev; 95 prod components all permissive (83 MIT/7 ISC/2 BSD-3/1 BSD-2); CycloneDX SBOM via `scripts/sbom.mjs`; exact pins + lockfile + `minimum-release-age`                                                                                       |
 | G6 Developer onboarding            | PASS            | fresh-environment test in isolated synthetic workspace (`/tmp/mcp-onboard`): init-config → doctor → stdio initialize → roots/list/read → denials (`.env`, `.ssh`, traversal) → git_status/diff → task_run allow + TASK_DENIED → malformed/mode-666 config refused         |
-| G7 Experience assurance            | PASS            | EA pipeline run twice; second full pass at the final SHA below; all Critical/High closed; see §3a–§3b                                                                                                                                  |
-| G8 Independent evaluation          | PASS            | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; second-pass 4-seat fresh-context docs review (cold dev / security / editor / rendered craft) — verdicts in §3b                                                                     |
-| G9 Release-package reproducibility | PASS            | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 21 files / 49.4 kB (internal RELEASE-PACKET excluded); `prepack` builds dist so `pnpm pack` cannot produce a distless tarball                                                                  |
+| G7 Experience assurance            | PASS            | EA pipeline run twice; second full pass at the final SHA below; all Critical/High closed; see §3a–§3b                                                                                                                                                                     |
+| G8 Independent evaluation          | PASS            | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; second-pass 4-seat fresh-context docs review (cold dev / security / editor / rendered craft) — verdicts in §3b                                                               |
+| G9 Release-package reproducibility | PASS            | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 21 files / 49.4 kB (internal RELEASE-PACKET excluded); `prepack` builds dist so `pnpm pack` cannot produce a distless tarball                                    |
 | G10 Publication preparation        | PASS            | SECURITY/CONTRIBUTING/CHANGELOG/CI workflow/SBOM/pack metadata prepared; `npm install -g <tarball>` proven; see §6 for held items                                                                                                                                         |
 | Remote CI proof                    | PASS            | GitHub Actions run `37990072251` on `81908362` — success: frozen install, typecheck, build, 169/169 on ubuntu-latest, prod audit, pack sanity, SBOM. CI caught+fixed 3 real defects: bad action SHA pin, missing `contents:read`, missing rg + APFS-only test assumptions |
 | License selection                  | BLOCKED (owner) | `UNLICENSED` today; recommendation: MIT (see §6)                                                                                                                                                                                                                          |
@@ -87,8 +87,8 @@ Executed per the accepted method; capabilities invoked: ECC
 `market-research`/`competitive-platform-analysis`/`mcp-server-patterns`
 (pinned v2.2.1 `5064474`), ui-craft
 `clarify`/`heuristic`/`critique`/`unhappy`/`audit`/`harden` (1.0.0),
-standalone `humanizer`, plus clean-context subagents as the qualified
-substitute for capability execution.
+standalone `humanizer`. Fresh-context subagents carry the independent-seat
+requirement (the method's mechanism, not a substitute for it).
 
 `mcp-server-patterns` checklist vs implementation: `registerTool` API for
 all 14 tools ✓; zod schema-first inputs ✓; transport separation
@@ -282,5 +282,7 @@ remote CI certification loop. No external paid services.
 ## 10. Recommended next action
 
 Owner review of this packet at the private repo, then the §8 decisions —
-starting with license + whether `main` should be pushed. Do not publish
-until the owner acts.
+starting with license + whether `main` should be pushed. The four logged
+implementation nits in §7 are doc-phase discoveries awaiting an owner call
+(no code changed under the docs-only mission). Do not publish until the
+owner acts.
