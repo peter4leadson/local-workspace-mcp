@@ -72,8 +72,10 @@ Verification pass on the round-2 fixes (all remediated + regressed):
 - **Fixed MED** — task env git hardening was nominal only: no env var
   disables repo-local config, so `core.fsmonitor`-style exec keys in
   `.git/config` stayed live inside tasks. `GIT_CONFIG_{COUNT,KEY,VALUE}`
-  command-scope overrides now pin the dangerous keys; dynamically proven —
-  an fsmonitor hook in fixture `.git/config` does not fire under `task_run`.
+  command-scope overrides now pin the dangerous keys plus
+  `core.hooksPath=/dev/null` (repo hooks inert inside tasks); dynamically
+  proven — an fsmonitor hook in fixture `.git/config` does not fire under
+  `task_run`.
 - **Fixed MED** — the whole-file key scan in `fs_search_content` was
   unbounded (N large files → unbounded IO per call). Now capped per-file
   (maxReadFileBytes) and per-call (64 unique files).

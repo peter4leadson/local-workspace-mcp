@@ -305,6 +305,9 @@ describe("EXEC: task_runner boundaries", () => {
     expect(r.stdout).toContain("GIT_TERMINAL_PROMPT=0");
     expect(r.stdout).toContain("GIT_LITERAL_PATHSPECS=1");
     expect(r.stdout).toContain("GIT_CONFIG_GLOBAL=/dev/null");
+    // Repo hooks are neutralized via command-scope config (core.hooksPath=/dev/null).
+    expect(r.stdout).toMatch(/GIT_CONFIG_KEY_\d+=core\.hooksPath/);
+    expect(r.stdout).toMatch(/GIT_CONFIG_VALUE_\d+=\/dev\/null/);
   });
 
   it("NF-2: hostile .git/config exec hooks are inert inside task subprocesses", async () => {

@@ -135,10 +135,12 @@ A follow-up verification pass on the F-round fixes added:
    primary boundary — name/policy denies are.
 8. **Task-side git config**: `GIT_CONFIG_*` env overrides neutralize the
    headline repo-config exec keys (`core.fsmonitor`, `core.sshCommand`,
-   `diff.external`, …) but cannot enumerate per-driver `diff.<name>.command`/
-   `textconv` hooks. A task that runs `git diff` in a hostile repo with a
-   configured diff driver could still exec it — constrain task argv and
-   prefer non-diff git commands in allowlisted tasks.
+   `diff.external`, `core.hooksPath=/dev/null` disables repo hooks, …) but
+   cannot enumerate per-driver `diff.<name>.command`/`textconv`/`filter.<name>`
+   hooks, and repo `.gitattributes` still applies them. A task that runs
+   `git diff`/`checkout` in a hostile repo with a configured driver could
+   still exec it — constrain task argv and prefer read-only, non-diff git
+   commands in allowlisted tasks on untrusted repos.
 9. **Search-scan budget**: beyond 64 unique files (or 50 MB per file) in one
    `fs_search_content` call, files get head-only sniff + per-preview marker
    checks — a key buried deep in a large file beyond the budget could leak

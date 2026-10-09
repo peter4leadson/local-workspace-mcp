@@ -144,7 +144,9 @@ export function gitEnv(): Record<string, string> {
  * command scope via GIT_CONFIG_{COUNT,KEY,VALUE}, which outranks .git/config.
  * Per-driver `diff.<name>.command`/`textconv` can't be enumerated statically;
  * `diff.external` is pinned to `true` (a no-op binary) as the reachable fix.
- * Operator extras apply last via applyExtras (GIT_* names are blocked there).
+ * `core.hooksPath=/dev/null` disables repo hooks (post-checkout, post-merge,
+ * etc.) for git invoked inside tasks. Operator extras apply last via
+ * applyExtras (GIT_* names are blocked there).
  */
 export function taskEnv(extra?: Record<string, string>): Record<string, string> {
   const env = gitEnv();
@@ -156,6 +158,7 @@ export function taskEnv(extra?: Record<string, string>): Record<string, string> 
     ["color.ui", "false"],
     ["diff.external", "true"],
     ["core.untrackedCache", "false"],
+    ["core.hooksPath", "/dev/null"],
   ];
   env.GIT_CONFIG_COUNT = String(gitSafe.length);
   gitSafe.forEach(([k, v], i) => {
