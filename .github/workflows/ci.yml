@@ -9,7 +9,8 @@ on:
     branches: [main, "release/**"]
   pull_request:
 
-permissions: {}
+permissions:
+  contents: read # required for actions/checkout on private repos
 
 jobs:
   verify:
