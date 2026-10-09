@@ -1,15 +1,15 @@
 # Release decision pack — local-workspace-mcp
 
-Status: HOLD — pending independent-review incorporation and owner decisions.
+Status: HOLD — all provable technical gates PASS at `a3fe113`; pending owner decisions only.
 
-| | |
-|---|---|
-| Canonical source | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote) |
-| Candidate SHA | `ec0f23fcd65071a83fbed37a74850d46f7248336` |
-| Release branch | `release/mcp-corporate-readiness-2026-10-09` |
+|                  |                                                                             |
+| ---------------- | --------------------------------------------------------------------------- |
+| Canonical source | `b87b0a3dc2d85a3e275978f72e34722f8fe4cd05` (`main`, clean, no remote)       |
+| Candidate SHA    | `a3fe113e0f6c7983a7917ae8eae86cce8c19d01a`                                  |
+| Release branch   | `release/mcp-corporate-readiness-2026-10-09`                                |
 | Release worktree | `local-workspace-mcp-release/` (isolated; live hosts still run source dist) |
-| Package | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED` |
-| Runtime | Node ≥20, pnpm 10.18.2 pinned by hash |
+| Package          | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`        |
+| Runtime          | Node ≥20, pnpm 10.18.2 pinned by hash                                       |
 
 ## 1. What this is
 
@@ -24,22 +24,22 @@ every watched root. Full boundary inventory in `docs/THREAT-MODEL.md`.
 
 ## 2. Gate ledger
 
-| Gate | State | Evidence |
-|---|---|---|
-| Baseline reproduction | PASS | 159/159 vitest on candidate; baseline 136/136 on `b87b0a3` |
-| RED-before-fix adversarial suite | PASS | `tests/adversarial.test.ts` — 23 cases, 11 reproduced real defects pre-fix |
-| Defect remediation | PASS | all 9 code findings closed (`d3e0db2`); regression tests permanent |
-| Supply-chain audit | PASS | `pnpm audit` clean prod+dev; minimatch→10.2.6, vitest→4.1.11 (`bdbdb28`) |
-| License audit (deps) | PASS | 95 prod components: 83 MIT / 7 ISC / 2 BSD-3 / 1 BSD-2; zero copyleft |
-| Pack contents | PASS | 13 files: `dist/*.js` + README + package.json — no src/tests/secrets |
-| MCP protocol (Inspector) | PASS | `scripts/inspector-smoke.sh` — 17/17 on candidate build |
-| Doctor diagnostics | PASS | ALL GREEN (roots, git/rg, tasks, policy selftest, registration) |
-| Fresh-install acceptance | PASS | `git archive` → frozen-lockfile install → build → 159/159 |
-| SBOM | PASS | `scripts/sbom.mjs` → CycloneDX 1.5, 95 components |
-| CI remote proof | NOT_PROVEN | workflow authored (`.github/workflows/ci.yml`) but no remote exists — cannot execute until a remote is attached |
-| Independent review | IN PROGRESS | clean-context review of `ec0f23f` running; findings pending |
-| License selection | BLOCKED (owner) | `UNLICENSED` today; recommendation: MIT (see §6) |
-| Publication | BLOCKED (owner) | intentionally stopped before public visibility |
+| Gate                             | State           | Evidence                                                                                                                                                                                            |
+| -------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline reproduction            | PASS            | 169/169 vitest on `a3fe113`; baseline 136/136 on `b87b0a3`                                                                                                                                          |
+| RED-before-fix adversarial suite | PASS            | `tests/adversarial.test.ts` — 33 cases, 11 reproduced real defects pre-fix                                                                                                                          |
+| Defect remediation               | PASS            | all findings closed across 3 rounds (`d3e0db2`, `ddec5e3`, `5bde47f`/`a3fe113`); regression tests permanent                                                                                         |
+| Supply-chain audit               | PASS            | `pnpm audit` clean prod+dev on `a3fe113`; minimatch→10.2.6, vitest→4.1.11 (`bdbdb28`)                                                                                                               |
+| License audit (deps)             | PASS            | 95 prod components: 83 MIT / 7 ISC / 2 BSD-3 / 1 BSD-2; zero copyleft                                                                                                                               |
+| Pack contents                    | PASS            | 13 files: `dist/*.js` + README + package.json — no src/tests/secrets                                                                                                                                |
+| MCP protocol (Inspector)         | PASS            | `scripts/inspector-smoke.sh` — 17/17 on `a3fe113` build                                                                                                                                             |
+| Doctor diagnostics               | PASS            | ALL GREEN on `a3fe113` (roots, git/rg, tasks, policy selftest, registration)                                                                                                                        |
+| Fresh-install acceptance         | PASS            | `git archive a3fe113` → frozen-lockfile install → build → typecheck → 169/169                                                                                                                       |
+| SBOM                             | PASS            | `scripts/sbom.mjs` → CycloneDX 1.5, 95 components                                                                                                                                                   |
+| CI remote proof                  | NOT_PROVEN      | workflow authored (`.github/workflows/ci.yml`) but no remote exists — cannot execute until a remote is attached                                                                                     |
+| Independent review               | PASS            | clean-context review (separate execution, exact-SHA): round 1 F1–F13 (1 HIGH) → `ddec5e3`; verify pass NF-1–NF-6 (1 HIGH) → `5bde47f`/`a3fe113`; convergence + delta sign-off **SHIP at `a3fe113`** |
+| License selection                | BLOCKED (owner) | `UNLICENSED` today; recommendation: MIT (see §6)                                                                                                                                                    |
+| Publication                      | BLOCKED (owner) | intentionally stopped before public visibility                                                                                                                                                      |
 
 Gate states used: PASS / FAILED / NOT_PROVEN / BLOCKED /
 NOT_APPLICABLE_WITH_REASON. No gate was weakened to reach green.
@@ -58,13 +58,26 @@ then remediated with permanent regression tests. Ledger in
   unvalidated operator globs + denied-dir descent (S-9), dev-chain
   advisories (S-11).
 
-Post-remediation critical/high blockers: **none known**. Independent review
-may add findings — this pack must be updated with its verdict before any
-release claim.
+Independent review (separate execution, exact-SHA bound) ran two rounds:
+
+- **Round 1** on `ec0f23f`: 13 findings (F1–F13) — 1 HIGH (`git show
+<blob-sha>` bypassed all deny layers), 4 MED (combined-diff leak,
+  head-only key sniff, marker-line-only redaction, task env lacking git
+  hardening), 8 LOW/INFO. All remediated at `ddec5e3` with regression
+  tests.
+- **Verify pass** on `ddec5e3`: 6 findings (NF-1–NF-6) — 1 HIGH (annotated
+  tag→blob peeled through the object-type gate), 2 MED (env couldn't
+  neutralize repo-local git config → `GIT_CONFIG_*` injection; unbounded
+  search key-scan → budgets), 3 LOW. Remediated at `5bde47f` + `a3fe113`
+  (hooksPath pin).
+- **Convergence + delta sign-off**: SHIP at `a3fe113` — no known
+  demonstrable fail-open path to denied content or code execution.
+
+Post-remediation critical/high blockers: **none known**.
 
 ## 4. Test totals & negative coverage
 
-- 159 tests across 8 files (23 adversarial). Every remediated finding has a
+- 169 tests across 8 files (33 adversarial). Every remediated finding has a
   permanent case; the suite asserts absence of secrets in output, not merely
   error codes.
 - Protocol: 14/14 tools advertised, annotations present, stdio purity
@@ -77,13 +90,13 @@ release claim.
 
 ## 5. Host compatibility matrix
 
-| Host | Path | Status |
-|---|---|---|
-| Claude Code | `claude mcp add` → user scope, direct stdio | WORKING (registered; SDK v1 line confirmed connected earlier) |
-| Claude Desktop | `claude_desktop_config.json` mcpServers → same command | CONFIGURED (restart required to reload) |
-| ChatGPT | `tunnel-client run --profile local-workspace` → outbound HTTPS → stdio spawn | RUNNING (PID 5249, foreground mode; see §7 note) |
-| Codex | no direct `mcp_servers` entry | NOT CONFIGURED — reachable only if a Codex tunnel plugin is used; document as unsupported-by-default |
-| MCP Inspector | `--cli` battery | PASS 17/17 |
+| Host           | Path                                                                         | Status                                                                                               |
+| -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Claude Code    | `claude mcp add` → user scope, direct stdio                                  | WORKING (registered; SDK v1 line confirmed connected earlier)                                        |
+| Claude Desktop | `claude_desktop_config.json` mcpServers → same command                       | CONFIGURED (restart required to reload)                                                              |
+| ChatGPT        | `tunnel-client run --profile local-workspace` → outbound HTTPS → stdio spawn | RUNNING (PID 5249, foreground mode; see §7 note)                                                     |
+| Codex          | no direct `mcp_servers` entry                                                | NOT CONFIGURED — reachable only if a Codex tunnel plugin is used; document as unsupported-by-default |
+| MCP Inspector  | `--cli` battery                                                              | PASS 17/17                                                                                           |
 
 Notes: SDK `@modelcontextprotocol/sdk@1.32.1` (spec ≤ 2025-11-25) chosen for
 host interop breadth; v2 line exists but is deliberately not adopted (see
@@ -115,9 +128,13 @@ registry; public npm + MCP registry listing only after owner sign-off.
 ## 7. Costs, residual risks, limitations
 
 - **Residual risks** (documented in THREAT-MODEL): hardlinks, same-uid
-  symlink TOCTOU, git worktree metadata, denied-file *names* visible in
+  symlink TOCTOU, git worktree metadata, denied-file _names_ visible in
   listings, prompt injection can steer reads within policy (deny is the
-  boundary).
+  boundary), per-driver git `diff.<name>.command`/`filter.<name>` hooks
+  inside allowlisted tasks on hostile repos (env-unclosable — hooks are
+  pinned off; constrain task argv), UTF-16 key-marker laundering
+  (heuristic boundary), search-scan budget head-only sniff beyond
+  64-file cap.
 - **Ops nuance**: the running tunnel uses `tunnel-client run --profile`
   (foreground), not the supervised `runtimes connect` path OPERATIONS.md
   recommends — survivable but not crash-persistent.
@@ -138,6 +155,7 @@ registry; public npm + MCP registry listing only after owner sign-off.
 
 ## 9. Recommended next action
 
-Incorporate the independent-review findings (running against `ec0f23f`);
-if clean, mark that gate PASS and hand the owner this pack for the six
-decisions above. Do not push or publish until the owner acts.
+All technical gates that can be proven without a remote are PASS at
+`a3fe113`. Hand this pack to the owner for the six decisions above. Do not
+push or publish until the owner acts; CI remote proof becomes provable the
+moment a remote is attached.
