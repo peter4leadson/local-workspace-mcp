@@ -13,12 +13,11 @@ are documented as residual risks in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)
 
 ## Reporting
 
-This project is currently a private release candidate. Report suspected
-vulnerabilities privately to the repository owner,
-[Peter C. Bennett](https://petercbennett.com), through an existing direct
-channel — do not file public issues or post reproductions containing real
-file paths, hostnames, or contents. Once the repository is public, use
-GitHub's private vulnerability reporting (Security Advisories).
+Report suspected vulnerabilities privately using GitHub's private
+vulnerability reporting (Security Advisories) on this repository, or to
+the owner, [Peter C. Bennett](https://petercbennett.com), through an
+existing direct channel. Do not file public issues or post reproductions
+containing real file paths, hostnames, or contents.
 
 Include:
 

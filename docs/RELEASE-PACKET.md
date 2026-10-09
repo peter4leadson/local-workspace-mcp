@@ -16,7 +16,7 @@ pass (§3b). Do not publish until the owner acts.
 | Private remote     | `github.com/peter4leadson/local-workspace-mcp` — visibility PRIVATE, verified pre- and post-push             |
 | Release branch     | `release/mcp-corporate-readiness-2026-10-09`                                                                 |
 | Release worktree   | `local-workspace-mcp-release/` (isolated; live hosts run their own install)                                  |
-| Package            | `local-workspace-mcp@0.1.0` · `private: true` · license `UNLICENSED`                                         |
+| Package            | `local-workspace-mcp@0.1.0` · license `MIT`                                                                  |
 | Runtime            | Node ≥20, pnpm 10.18.2 pinned by hash                                                                        |
 
 ## 1. What this is
@@ -33,21 +33,21 @@ boundary inventory in `docs/THREAT-MODEL.md`.
 
 ## 2. Gate ledger
 
-| Gate                               | State           | Evidence                                                                                                                                                                                                                                                                  |
-| ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G1 Source & history integrity      | PASS            | release worktree isolated from `main`; canonical `b87b0a3` → candidate `0c9450e`; all review evidence exact-SHA bound                                                                                                                                                     |
-| G2 Security assurance              | PASS            | 3-round bounded convergence: F1–F13 → `ddec5e3`; NF-1–NF-6 → `5bde47f`/`a3fe113`; **SHIP at `a3fe113`**; doc/string delta re-verified **SHIP at `0c9450e`**                                                                                                               |
-| G3 Functional & negative testing   | PASS            | 169/169 vitest (33-case adversarial suite) at `0c9450e`; baseline 136/136 on `b87b0a3`                                                                                                                                                                                    |
-| G4 MCP protocol assurance          | PASS            | `scripts/inspector-smoke.sh` — 17/17 on the `0c9450e` build; 14/14 tools, annotations, stdio purity                                                                                                                                                                       |
-| G5 Supply-chain assurance          | PASS            | `pnpm audit` clean prod+dev; 95 prod components all permissive (83 MIT/7 ISC/2 BSD-3/1 BSD-2); CycloneDX SBOM via `scripts/sbom.mjs`; exact pins + lockfile + `minimum-release-age`                                                                                       |
-| G6 Developer onboarding            | PASS            | fresh-environment test in isolated synthetic workspace (`/tmp/mcp-onboard`): init-config → doctor → stdio initialize → roots/list/read → denials (`.env`, `.ssh`, traversal) → git_status/diff → task_run allow + TASK_DENIED → malformed/mode-666 config refused         |
-| G7 Experience assurance            | PASS            | EA pipeline run twice; second full pass at the final SHA below; all Critical/High closed; see §3a–§3b                                                                                                                                                                     |
-| G8 Independent evaluation          | PASS            | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; second-pass 4-seat fresh-context docs review (cold dev / security / editor / rendered craft) — verdicts in §3b                                                               |
-| G9 Release-package reproducibility | PASS            | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 21 files / 49.4 kB (internal RELEASE-PACKET excluded); `prepack` builds dist so `pnpm pack` cannot produce a distless tarball                                    |
-| G10 Publication preparation        | PASS            | SECURITY/CONTRIBUTING/CHANGELOG/CI workflow/SBOM/pack metadata prepared; `npm install -g <tarball>` proven; see §6 for held items                                                                                                                                         |
-| Remote CI proof                    | PASS            | GitHub Actions run `37990072251` on `81908362` — success: frozen install, typecheck, build, 169/169 on ubuntu-latest, prod audit, pack sanity, SBOM. CI caught+fixed 3 real defects: bad action SHA pin, missing `contents:read`, missing rg + APFS-only test assumptions |
-| License selection                  | BLOCKED (owner) | `UNLICENSED` today; recommendation: MIT (see §6)                                                                                                                                                                                                                          |
-| Publication (repo/npm/registry)    | BLOCKED (owner) | intentionally stopped before public visibility; MCP Registry requires a published npm package + `server.json` + `mcpName` — all gated on the license/hosting decision                                                                                                     |
+| Gate                               | State        | Evidence                                                                                                                                                                                                                                                                  |
+| ---------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1 Source & history integrity      | PASS         | release worktree isolated from `main`; canonical `b87b0a3` → candidate `0c9450e`; all review evidence exact-SHA bound                                                                                                                                                     |
+| G2 Security assurance              | PASS         | 3-round bounded convergence: F1–F13 → `ddec5e3`; NF-1–NF-6 → `5bde47f`/`a3fe113`; **SHIP at `a3fe113`**; doc/string delta re-verified **SHIP at `0c9450e`**                                                                                                               |
+| G3 Functional & negative testing   | PASS         | 169/169 vitest (33-case adversarial suite) at `0c9450e`; baseline 136/136 on `b87b0a3`                                                                                                                                                                                    |
+| G4 MCP protocol assurance          | PASS         | `scripts/inspector-smoke.sh` — 17/17 on the `0c9450e` build; 14/14 tools, annotations, stdio purity                                                                                                                                                                       |
+| G5 Supply-chain assurance          | PASS         | `pnpm audit` clean prod+dev; 95 prod components all permissive (83 MIT/7 ISC/2 BSD-3/1 BSD-2); CycloneDX SBOM via `scripts/sbom.mjs`; exact pins + lockfile + `minimum-release-age`                                                                                       |
+| G6 Developer onboarding            | PASS         | fresh-environment test in isolated synthetic workspace (`/tmp/mcp-onboard`): init-config → doctor → stdio initialize → roots/list/read → denials (`.env`, `.ssh`, traversal) → git_status/diff → task_run allow + TASK_DENIED → malformed/mode-666 config refused         |
+| G7 Experience assurance            | PASS         | EA pipeline run twice; second full pass at the final SHA below; all Critical/High closed; see §3a–§3b                                                                                                                                                                     |
+| G8 Independent evaluation          | PASS         | security red team (separate context, exact-SHA): SHIP at `a3fe113`, delta SHIP at `0c9450e`; second-pass 4-seat fresh-context docs review (cold dev / security / editor / rendered craft) — verdicts in §3b                                                               |
+| G9 Release-package reproducibility | PASS         | `git archive 01d5f94` → frozen-lockfile install → build → typecheck → 169/169 in clean dir; `npm pack` = 21 files / 49.4 kB (internal RELEASE-PACKET excluded); `prepack` builds dist so `pnpm pack` cannot produce a distless tarball                                    |
+| G10 Publication preparation        | PASS         | SECURITY/CONTRIBUTING/CHANGELOG/CI workflow/SBOM/pack metadata prepared; `npm install -g <tarball>` proven; see §6 for held items                                                                                                                                         |
+| Remote CI proof                    | PASS         | GitHub Actions run `37990072251` on `81908362` — success: frozen install, typecheck, build, 169/169 on ubuntu-latest, prod audit, pack sanity, SBOM. CI caught+fixed 3 real defects: bad action SHA pin, missing `contents:read`, missing rg + APFS-only test assumptions |
+| License selection                  | DECIDED: MIT | owner authorized 2026-10-09; `LICENSE` added, `package.json` `license:"MIT"`, `private:true` removed for the public release                                                                                                                                               |
+| Publication (repo/npm/registry)    | IN PROGRESS  | owner authorized GitHub-public + npm + official MCP Registry on 2026-10-09; `server.json` (`io.github.peter4leadson/local-workspace-mcp`) + `mcpName` prepared and schema-validated — evidence recorded below once public endpoints are independently verified            |
 
 Gate states used: PASS / FAILED / NOT_PROVEN / BLOCKED /
 NOT_APPLICABLE_WITH_REASON. No gate was weakened to reach green.
@@ -262,19 +262,17 @@ registry; public npm + MCP registry listing only after owner sign-off.
 
 ## 8. Remaining owner decisions
 
-1. Whether to push `main` (only the release branch is pushed; the private
-   repo's default branch is currently the release branch — owner may push
-   `main` and re-point the default).
-2. License (recommended: MIT).
-3. npm publish identity + scope (`private:true` held until decided; publish
-   adds a license line — `repository`/`author` fields are already in place:
-   `author` is `Peter C. Bennett (https://petercbennett.com)`, no public
-   email, matching SECURITY.md's contact posture).
-4. MCP Registry / marketplace submission (requires a published npm package
-   first, plus `server.json` + `mcpName` — none created yet, by design).
+1. ~~Whether to push `main`~~ DONE — `main` pushed at the release SHA
+   (fast-forward, no history rewrite) and set as the default branch.
+2. ~~License~~ DONE — MIT applied (`LICENSE`, `package.json`, README).
+3. npm publish identity + scope (`private:true` removed for this release;
+   `repository`/`author`/`mcpName` fields are in place: `author` is
+   `Peter C. Bennett (https://petercbennett.com)`, no public email,
+   matching SECURITY.md's contact posture).
+4. MCP Registry submission (`server.json` validated against schema
+   `2025-12-11`; entry `io.github.peter4leadson/local-workspace-mcp`).
 5. Whether the tunnel should move to supervised `runtimes connect`.
 6. Any commercial use authorization.
-7. Public visibility — repo stays PRIVATE until the owner decides otherwise.
 
 ## 9. Costs
 

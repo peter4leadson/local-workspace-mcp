@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.peter4leadson/local-workspace-mcp",
+  "description": "Bounded, read-oriented filesystem, git and named-task tools over authorized workspace roots.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/peter4leadson/local-workspace-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "local-workspace-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx"
+    }
+  ]
+}

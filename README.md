@@ -43,10 +43,10 @@ Requires Node ≥ 20, plus `git` for `git_*` tools and ripgrep (`rg`) for
 content search. Building from a clone needs pnpm (`corepack enable`).
 
 ```sh
-# from a clone:
-pnpm install && pnpm build && npm link        # puts workspace-mcp on PATH
-# or build a tarball and install it globally (prepack builds dist/ for you):
-pnpm pack && npm install -g local-workspace-mcp-0.1.0.tgz
+npm install -g local-workspace-mcp          # puts workspace-mcp on PATH
+
+# or from a clone:
+pnpm install && pnpm build && npm link
 
 workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
 $EDITOR ~/.config/local-workspace-mcp/config.json   # replace the example workspace (below)
@@ -351,14 +351,15 @@ pnpm audit --prod            # dependency audit
   surface without design review.
 - [SECURITY.md](SECURITY.md): vulnerability reporting and scope.
 - [CHANGELOG.md](CHANGELOG.md): release notes by finding/version.
-- License: `UNLICENSED` for now (private development); the owner intends a
-  permissive license before any public release.
+- License: [MIT](LICENSE).
 
 ## Release status
 
-v0.1.0 is a private release candidate. The public surface (this README,
-[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is the
-artifact being evaluated. Nothing has been published.
+v0.1.0 is published on npm as `local-workspace-mcp` and listed on the
+official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
+The evaluated release surface (this README,
+[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is
+described in [docs/RELEASE-PACKET.md](docs/RELEASE-PACKET.md).
 
 ---
 

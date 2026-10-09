@@ -4,12 +4,11 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — corporate-readiness candidate
+## [0.1.0] — 2026-10-09
 
-The entries below are cumulative remediations that will ship **as** the
-0.1.0 private release candidate; the `[0.1.0]` section at the bottom
-describes the pre-remediation baseline. The `version` field stays `0.1.0`
-until the owner cuts the release.
+First public release, under MIT. The entries below are the cumulative
+corporate-readiness remediations shipped in 0.1.0 over the private
+baseline recorded at the bottom of this file.
 
 ### Security (adversarial review round 2026-10-09, `tests/adversarial.test.ts`)
 
@@ -95,7 +94,7 @@ Verification pass on the round-2 fixes (all remediated + regressed):
 - `SECURITY.md`, `CONTRIBUTING.md`, this changelog.
 - Threat-model rows and findings ledger in `docs/THREAT-MODEL.md`.
 
-## [0.1.0] — 2026-10-05
+### Private baseline — 2026-10-05
 
 Initial private version: 14 read-oriented tools (bounded fs, git, and
 allowlisted named-task execution) over operator-authorized roots; stdio

@@ -2,9 +2,9 @@
   "name": "local-workspace-mcp",
   "version": "0.1.0",
   "description": "Read-oriented local workspace MCP server: bounded filesystem, git and named-task tools over explicitly authorized roots.",
-  "license": "UNLICENSED",
-  "private": true,
+  "license": "MIT",
   "author": "Peter C. Bennett (https://petercbennett.com)",
+  "mcpName": "io.github.peter4leadson/local-workspace-mcp",
   "repository": {
     "type": "git",
     "url": "https://github.com/peter4leadson/local-workspace-mcp.git"
