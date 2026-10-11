@@ -33,6 +33,9 @@ export async function runDoctor(configPath = defaultConfigPath()): Promise<{ ok:
   push("build", true, `${SERVER_NAME} ${SERVER_VERSION} on node ${process.version}`);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   push("node.version", nodeMajor >= 20, `${process.version} (requires >=20)`);
+  // POSIX-only: task timeouts use process-group kill and git/task env pins
+  // /dev/null — neither has a Windows equivalent, so degrade loudly.
+  push("platform", process.platform !== "win32", `${process.platform} (supported: darwin, linux)`);
 
   // config parse
   let cfg;

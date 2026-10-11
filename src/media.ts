@@ -141,18 +141,25 @@ export function sha256Hex(buf: Buffer): string {
 const KEY_ARMOR_BYTES = Buffer.from("PRIVATE KEY", "latin1");
 const PUTTY_BYTES = Buffer.from("PuTTY-User-Key-File-", "latin1");
 const KEY_ARMOR_RE = /-{2,}\s*BEGIN\s+[A-Z0-9 \-]*PRIVATE KEY(?:\s+BLOCK)?\s*-{0,}|PuTTY-User-Key-File-\d:/i;
+const KEY_ARMOR_RE_COMPACT = /-{2,}BEGIN[A-Z0-9\-]*PRIVATEKEY(?:BLOCK)?|PUTTY-USER-KEY-FILE-\d:/i;
 
 /**
  * Content-class refusal on raw bytes: private-key armor is ASCII and survives
  * verbatim inside PNG tEXt chunks, ZIP comments, and renamed files — a name
  * that evades the path policy must not become a content channel. Covers both
- * PEM/OpenSSH-style armor and PuTTY .ppk headers.
+ * PEM/OpenSSH-style armor and PuTTY .ppk headers. A whitespace-split marker
+ * (`PRIVAT\nE KEY`) evades the literal probes, so text-like payloads get a
+ * zero-collapse pass too; binary payloads only match when armor is contiguous
+ * anyway (interleaved binary bytes break either pattern).
  */
 export function bufferHasKeyMaterial(buf: Buffer): boolean {
   // Fast reject on the literals, confirm with the marker grammar so plain
   // mentions like "PRIVATE KEY" prose don't deny a legitimate payload.
-  if (!buf.includes(KEY_ARMOR_BYTES) && !buf.includes(PUTTY_BYTES)) return false;
-  return KEY_ARMOR_RE.test(buf.toString("latin1"));
+  if (buf.includes(KEY_ARMOR_BYTES) || buf.includes(PUTTY_BYTES)) {
+    if (KEY_ARMOR_RE.test(buf.toString("latin1"))) return true;
+  }
+  const s = buf.toString("latin1");
+  return !s.includes("\0") && KEY_ARMOR_RE_COMPACT.test(s.replace(/\s+/g, ""));
 }
 
 /** Read a whole file under a byte cap. Used by media tools only — callers

@@ -148,13 +148,13 @@ pure reads). `task_run` is the only tool with side effects.
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                    | Status     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ---------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified   |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | configured |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | supported  |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified   |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified   |
+| Host                    | Mechanism                                                                                                                                                                                                                                                                                                                                                                          | Status     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                                                                                                                                                                                                                                                                       | verified   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                                                                                                                                                                                                                                                                                    | configured |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                                                                                                                                                                                                                                                                                | supported  |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); tool calls verified end-to-end, but the connector retains a cached tool catalog — after upgrading, re-save/reconnect the connector in ChatGPT settings or new tools may not appear. `image` content delivery to the model is a separate host-side checkpoint — every image tool also returns full text metadata. | verified\* |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                                                                                                                                                                                                                                                                                    | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while
@@ -187,6 +187,13 @@ For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
 stdio command locally; no inbound network listener opens. (tunnel-client
 can optionally bind a loopback-only health endpoint — see OPERATIONS.)
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+Cloud disclosure: over the ChatGPT tunnel path, tool outputs — including
+image bytes and extracted document text — transit OpenAI's connector
+infrastructure to reach the model. That is the point of the integration,
+but it means anything the boundary allows the model to read also leaves
+the machine for that host. Keep roots and deny rules tight on any
+workspace served to a cloud connector.
 
 ## Permission model
 
@@ -261,7 +268,7 @@ AI host ── stdio JSON-RPC ──▶ workspace-mcp serve --stdio
   audit.ts    metadata-only JSONL; refuses symlinked targets
 ```
 
-The full boundary analysis, the 30-finding adversarial ledger, the 33-case
+The full boundary analysis, the multi-round findings ledger, the adversarial
 regression suite, and documented residual risks live in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Disclosure
 policy in [SECURITY.md](SECURITY.md).
 
@@ -338,8 +345,12 @@ uninstall entirely, also remove the host entry (`claude mcp remove`, the
 
 ## Compatibility
 
-- Node ≥ 20 (uses `node:util` parseArgs; tested on Node 22).
-- macOS/Linux. Windows is untested; path validation is POSIX-shaped.
+- Node ≥ 20 (uses `node:util` parseArgs; packaged install verified on
+  Node 20.11, 22.12, and 24.21).
+- macOS/Linux only — declared via `os` in `package.json` and checked by
+  `doctor` (`platform`). Windows is unsupported, not just untested: task
+  timeouts rely on POSIX process-group kill and git/task isolation pins
+  `/dev/null`.
 - MCP SDK `@modelcontextprotocol/sdk` v1.x line (spec ≤ 2025-11-25);
   v2 API surface is deliberately not adopted yet (see [docs/RESEARCH.md](docs/RESEARCH.md)).
 - ripgrep required for `fs_search_content`; git required for `git_*`.
@@ -348,7 +359,7 @@ uninstall entirely, also remove the host entry (`claude mcp remove`, the
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                    # 169 vitest cases incl. 33-case adversarial suite
+pnpm test                    # 272 vitest cases incl. adversarial + red-team regressions
 pnpm typecheck && pnpm build
 workspace-mcp doctor         # deterministic diagnostics
 scripts/inspector-smoke.sh <workspace-id>   # 17-check MCP Inspector battery
@@ -365,11 +376,11 @@ pnpm audit --prod            # dependency audit
 
 ## Release status
 
-v0.1.0 is published on npm as `local-workspace-mcp` and listed on the
-official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
-The evaluated release surface (this README,
-[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is
-described in [docs/RELEASE-PACKET.md](docs/RELEASE-PACKET.md).
+Published on npm as `local-workspace-mcp` and listed on the official MCP
+Registry as `io.github.peter4leadson/local-workspace-mcp`; see
+[CHANGELOG.md](CHANGELOG.md) for the current version and release history.
+A 0.2.0 release decision record is maintained in the repository at
+`docs/RELEASE-PACKET.md` (internal ledger — not shipped in the tarball).
 
 ---
 

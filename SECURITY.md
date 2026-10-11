@@ -71,8 +71,9 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 
 ## Supported versions
 
-| Version                 | Status                           |
-| ----------------------- | -------------------------------- |
-| 0.1.0 release candidate | Under corporate-readiness review |
+| Version | Status                               |
+| ------- | ------------------------------------ |
+| 0.2.x   | Current release line — supported     |
+| 0.1.x   | Superseded; no further fixes planned |
 
-Pre-1.0: only the latest commit on the release branch is supported.
+Pre-1.0: only the latest published release is supported.

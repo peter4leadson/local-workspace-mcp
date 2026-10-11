@@ -3,3 +3,4 @@ dist/
 coverage/
 *.log
 *.tgz
+.tmp-e2e/

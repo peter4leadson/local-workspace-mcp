@@ -176,6 +176,29 @@ inert-on-bundled-librsvg posture):
 | F-4 | INFO | `\\host` UNC over-decoded to `\h` before the SMIL check → covered by the `\\`/`/`/`..` segment refusal.                                                  |
 | F-5 | INFO | fail-closed false-positive surface (benign `src(foo)` text, quoted `image-set("a.png" 1x)` args refused) — accepted posture for a defense-in-depth scan. |
 
+Release-assurance red-team round on `b4cc053` (hostile synthetic fixtures,
+verified over both the module API and real `serve --stdio` wire path) — all
+findings remediated and pinned by `tests/redteam-regressions.test.ts`:
+
+| ID     | Sev     | Finding → Fix                                                                                                                                                                                                                                                                    |
+| ------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RT-1   | MED     | mid-word armor split (`PRIVAT\nE KEY`) evaded every private-key scan surface → zero-collapse pass (`PRIVATEKEY`) added to `hasPrivateKeyMaterial`/`bufferHasKeyMaterial`, rolling 128-char tail for the streaming scanner, and a `+`/`-`/space de-prefix pass inside diff parts. |
+| RT-2   | LOW-MED | suffix-anchored deny globs evaded by trailing whitespace/control chars (`.env `, `HEAD:.env\t` — git object paths spell names fs paths can't) → `DenyPolicy.check` also tests the trimmed spelling for _deny only_; allowlist applies to the literal spelling only.              |
+| RT-3   | MED     | `task_run` stall past timeout: `close` waits on all stdio writers, and a detached grandchild holding inherited pipes survives the group kill → after kill, the server destroys its pipe ends and settles on `exit` (+5 s fallback).                                              |
+| RT-4   | LOW     | `\x1e`/`\x1f` in commit subjects forged phantom `git_log` records → NUL separators (unforgeable in commit content) + field sanitization.                                                                                                                                         |
+| INFO-5 | LOW     | `task_run` returned raw output while rg/git scrub root paths → stdout/stderr now get the same `<root>` scrub.                                                                                                                                                                    |
+| INFO-6 | LOW     | `fs_office_text` silently dropped unextractable sections → `sectionsFailed` counter surfaced.                                                                                                                                                                                    |
+| INFO-7 | LOW     | prototype-key task ids (`tasks:["constructor"]`) passed config validation then threw `INTERNAL_ERROR` → `Object.hasOwn` checks → `TASK_DENIED`.                                                                                                                                  |
+
+ATAM-mandated robustness items closed in the same pass: platform declared
+POSIX-only (`package.json` `os` field + `doctor` platform check — Windows
+group-kill/`/dev/null` semantics were silently partial); cumulative call
+deadlines for `fs_contact_sheet` (3× `mediaTimeoutMs` budget) and
+`fs_pdf_page` renders (2×); `gitFileUniverse` falls back to the honest
+directory walk when `ls-files` output is truncated instead of returning a
+silently partial universe; a rejected PDFium init is no longer cached
+forever (next call retries).
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
@@ -202,10 +225,12 @@ inert-on-bundled-librsvg posture):
    model may be told to read more files; the deny policy and root boundary
    remain the hard limit.
 7. **Content-marker heuristics**: private-key detection matches armor markers
-   (`BEGIN … PRIVATE KEY`, PuTTY). A UTF-16/otherwise-encoded key evades the
-   byte-level scan (decodes with NULs, still catchable by the binary probe in
-   the first 8 KiB only). Marker detection is defense in depth, not the
-   primary boundary — name/policy denies are.
+   (`BEGIN … PRIVATE KEY`, PuTTY) across raw, space-collapsed, and
+   zero-collapsed spellings. It is not a general secret scanner — renamed
+   AWS/GitHub-style tokens without armor (and a UTF-16/otherwise-encoded
+   key) pass it; the byte-level scan only guarantees refusal of key armor.
+   Marker detection is defense in depth, not the primary boundary —
+   name/policy denies are.
 8. **Task-side git config**: `GIT_CONFIG_*` env overrides neutralize the
    headline repo-config exec keys (`core.fsmonitor`, `core.sshCommand`,
    `diff.external`, `core.hooksPath=/dev/null` disables repo hooks, …) but
@@ -219,12 +244,17 @@ inert-on-bundled-librsvg posture):
    call, files get head-only sniff + per-preview marker checks — a key
    buried deep in a large file beyond the budget could leak base64 lines
    lacking the marker. Bounded 240-char previews limit blast.
-10. **SVG rasterization is a scan, not a sandbox**: the external-reference
-    scan (`svgExternalRefReason`) is a conservative allowlist evaluated
-    before librsvg sees the file — but librsvg still parses adversarial XML.
-    Rasterization failures return bounded errors; pixel caps and the shared
-    decode semaphore bound resource use. SVGs are attacker-controlled XML —
-    treat the format as permanently watchlisted.
+10. **Native raster decoding runs in-process**: sharp/libvips (and bundled
+    librsvg for SVG) decode attacker-controlled bytes inside the
+    trust-boundary process. Caps, the shared semaphore, and deadlines bound
+    resources but not memory safety — a libvips decoder CVE could
+    compromise the process holding access to all authorized roots. The SVG
+    external-reference scan (`svgExternalRefReason`) is additionally a
+    _scan, not a sandbox_: librsvg still parses adversarial XML, and SVG
+    should be treated as permanently watchlisted. Process-isolated decode
+    workers are the planned pre-1.0 mitigation; operators who accept no
+    raster-decode exposure can keep SVG/deny lists or workspace scoping
+    accordingly.
 11. **Encrypted archive members are refused, not decrypted**: any member
     with the encryption bit set fails closed. Encrypted archives therefore
     expose member _names_ only — the same existence-oracle class as denied
@@ -234,6 +264,11 @@ inert-on-bundled-librsvg posture):
     every image tool therefore also returns full metadata as text +
     `structuredContent`. Host-side visual delivery is verified separately
     per host, never assumed from Inspector behavior.
+13. **POSIX-only**: process-group kill semantics and `/dev/null` env pins
+    have no Windows equivalent — the package declares `os: [darwin, linux]`
+    and `doctor` reports `platform` explicitly rather than degrading
+    silently. Windows support would need per-platform task-kill and
+    git-isolation equivalents.
 
 ## Failure policy
 

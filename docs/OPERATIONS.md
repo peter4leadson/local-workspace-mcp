@@ -56,7 +56,8 @@ Notes:
 
 - Over-cap original images fail with `RESOURCE_LIMIT` and the agent must opt
   in to a disclosed re-encode (`fitMaxDim`) — evidence is never silently
-  altered. Returned transforms are reported in `transform:{kind,detail}`.
+  altered. Returned transforms are reported in
+  `transform:{kind, sourceSha256, returnedSha256, detail}`.
 - Image tools return text metadata + `structuredContent` alongside the
   image block, so hosts that drop `image` content (e.g. some ChatGPT
   connector paths) still get complete metadata. See RESEARCH.md.
@@ -86,9 +87,16 @@ followed by `workspace-mcp doctor` is the equivalent upgrade.
 The installed launcher path is `$(npm prefix -g)/bin/workspace-mcp`
 (`which workspace-mcp` confirms it); it is stable across rebuilds and
 hosts pick up the new build on next spawn. Server name/version come from MCP
-`initialize` (`local-workspace-mcp 0.1.0`, SDK v1 line, spec ≤2025-11-25).
-Breaking tool-schema changes must bump the minor version — ChatGPT can retain
-a frozen tool snapshot until refreshed.
+`initialize` (`local-workspace-mcp <version>` — matches package.json;
+SDK v1 line, spec ≤2025-11-25).
+Breaking tool-catalog changes must bump the minor version — ChatGPT's
+connector retains a frozen `tools/list` snapshot until refreshed. The
+server advertises `notifications/tools/list_changed`, but the hosted
+connector does not re-list on that signal today: **recovery is a
+ChatGPT-side connector re-save/reconnect** (Settings → Connectors → the
+connector → edit/save, or toggle off/on). If the catalog is still stale
+after that, the connector must be deleted and recreated — the local
+server and tunnel are not at fault.
 
 ## OpenAI Secure MCP Tunnel (ChatGPT path)
 

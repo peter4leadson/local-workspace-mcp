@@ -144,7 +144,7 @@ export function loadConfig(configPath = defaultConfigPath()): LoadedConfig {
       throw new Error(`CONFIG_ERROR: workspace id ${JSON.stringify(id)} must match ^[a-z0-9][a-z0-9_-]{0,63}$`);
     }
     for (const t of ws.tasks) {
-      if (!cfg.tasks[t]) {
+      if (!Object.hasOwn(cfg.tasks, t)) {
         throw new Error(`CONFIG_ERROR: workspace ${id} enables unknown task ${JSON.stringify(t)}`);
       }
     }

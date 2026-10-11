@@ -118,6 +118,9 @@ export class OfficeOps {
       const sections: { name: string; chars: number; text: string }[] = [];
       let chars = 0;
       let truncated = false;
+      // Sections that failed to decompress are counted so a partial result
+      // is reported honestly instead of looking complete.
+      let sectionsFailed = 0;
 
       const push = (name: string, text: string) => {
         if (truncated) return;
@@ -142,7 +145,7 @@ export class OfficeOps {
         for (const n of parts) {
           if (truncated) break;
           const xml = await this.readXml(arc, n);
-          if (!xml) continue;
+          if (!xml) { sectionsFailed++; continue; }
           // Paragraph breaks at </w:p>; table cells joined inline.
           const paras = xml.split(/<\/w:p>/).map((p) => extractRuns(p, "w:t").join("")).filter((s) => s.trim().length > 0);
           push(n, paras.join("\n"));
@@ -156,7 +159,7 @@ export class OfficeOps {
         for (const n of slides) {
           if (truncated) break;
           const xml = await this.readXml(arc, n);
-          if (!xml) continue;
+          if (!xml) { sectionsFailed++; continue; }
           const num = slideRe.exec(n)![1]!;
           push(`slide ${num}`, extractRuns(xml, "a:t").join("\n"));
         }
@@ -178,7 +181,7 @@ export class OfficeOps {
         for (const n of sheets) {
           if (truncated) break;
           const xml = await this.readXml(arc, n);
-          if (!xml) continue;
+          if (!xml) { sectionsFailed++; continue; }
           const lines: string[] = [];
           let cellCount = 0;
           for (const cm of xml.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/g)) {
@@ -223,6 +226,7 @@ export class OfficeOps {
         memberCount: arc.entries.length,
         textChars: chars,
         truncated,
+        ...(sectionsFailed > 0 ? { sectionsFailed } : {}),
         sections,
         caveats: [
           "text extraction only: images/styles/comments are not rendered",

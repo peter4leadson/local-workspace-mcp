@@ -193,9 +193,14 @@ export class FsOps {
       crlfDelay: Infinity,
     });
     let scanned = 0;
+    // Rolling tail: an armor marker split mid-word across lines (`PRIVAT` /
+    // `E KEY`) is invisible to per-line checks; the last-128-char window
+    // covers a marker split over several short lines.
+    let tail = "";
     try {
       for await (const line of rl) {
-        if (hasPrivateKeyMaterial(line)) return true;
+        tail = (tail + "\n" + line).slice(-128);
+        if (hasPrivateKeyMaterial(tail)) return true;
         scanned += line.length + 1;
         if (maxBytes !== undefined && scanned > maxBytes) return false;
       }

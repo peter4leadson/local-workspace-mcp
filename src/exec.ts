@@ -57,6 +57,22 @@ export function runBounded(file: string, args: string[], opts: BoundedOptions): 
     child.stdout?.on("data", (c: Buffer) => push(stdout, c));
     child.stderr?.on("data", (c: Buffer) => push(stderr, c));
 
+    let settled = false;
+    const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        exitCode: code,
+        signal,
+        timedOut,
+        truncated,
+        durationMs: Date.now() - started,
+      });
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
       try {
@@ -68,25 +84,23 @@ export function runBounded(file: string, args: string[], opts: BoundedOptions): 
           /* already gone */
         }
       }
+      // `close` waits for every stdio writer — a detached grandchild that
+      // survives the group kill still holds the pipes and would stall the
+      // call forever. Destroy our ends and settle on `exit` instead.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.once("exit", (code, signal) => finish(code, signal));
+      setTimeout(() => finish(null, "SIGKILL"), 5000).unref();
     }, opts.timeoutMs);
 
     child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       reject(new ToolError("INTERNAL_ERROR", `failed to spawn ${file}: ${err.message}`));
     });
 
-    child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        exitCode: code,
-        signal,
-        timedOut,
-        truncated,
-        durationMs: Date.now() - started,
-      });
-    });
+    child.on("close", (code, signal) => finish(code, signal));
   });
 }
 

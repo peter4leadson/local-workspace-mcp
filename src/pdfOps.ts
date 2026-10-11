@@ -25,7 +25,15 @@ import { hasPrivateKeyMaterial } from "./git.js";
 
 let libPromise: Promise<PDFiumLibrary> | null = null;
 function getLib(): Promise<PDFiumLibrary> {
-  if (!libPromise) libPromise = PDFiumLibrary.init();
+  if (!libPromise) {
+    const p = PDFiumLibrary.init();
+    libPromise = p;
+    // A failed init must not brick every later call — clear the cache so the
+    // next request retries (e.g. transient WASM compile failure).
+    p.catch(() => {
+      if (libPromise === p) libPromise = null;
+    });
+  }
   return libPromise;
 }
 
@@ -130,7 +138,13 @@ export class PdfOps {
       const pageCount = doc.getPageCount();
       const wanted = this.resolvePages(pageCount, pages, this.m.pdfMaxPagesRender, "render");
       const images: { page: number; bytes: Buffer; mime: string; width: number; height: number }[] = [];
+      // Cumulative render budget across pages — per-page deadlines alone
+      // would let N pathological pages stall the call N× as long.
+      const renderDeadlineAt = Date.now() + this.m.mediaTimeoutMs * 2;
       for (const n of wanted) {
+        if (images.length > 0 && Date.now() > renderDeadlineAt) {
+          throw new ToolError("TIMEOUT", `pdf render deadline exhausted after ${images.length} page(s); request a smaller page set`);
+        }
         const page = doc.getPage(n - 1);
         const size = page.getOriginalSize();
         // Scale to the smaller of 2x (≈144dpi) or the pixel budget.

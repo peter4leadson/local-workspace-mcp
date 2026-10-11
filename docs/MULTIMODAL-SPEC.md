@@ -119,7 +119,7 @@ the tunnel forwards responses verbatim (verified in `tunnel-client` source:
 `payload.JSONResponse = rawResponse`). End-to-end ChatGPT acceptance is
 verified separately and recorded — a server-side PASS is not a host claim.
 
-## Host verification status (2026-10-11, HEAD 3a81d09)
+## Host verification status (2026-10-11, HEAD b4cc053)
 
 - Stdio protocol smoke: PASS — 23 tools listed, `fs_image` returns a
   byte-identical native `image` block plus metadata text/structuredContent.

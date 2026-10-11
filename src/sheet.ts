@@ -109,9 +109,19 @@ export class ContactSheet {
     const labelH = LABEL_H;
 
     const items: SheetItem[] = [];
+    // Cumulative call budget: each item has its own mediaTimeoutMs deadline,
+    // but N pathological decodes must not stretch one call to N× that. The
+    // remaining items degrade to failed cells once the budget is spent.
+    const callDeadlineAt = Date.now() + this.m.mediaTimeoutMs * 3;
     for (let i = 0; i < relPaths.length; i++) {
       const p = relPaths[i]!;
       const item: SheetItem = { index: i, path: p, status: "ok" };
+      if (Date.now() > callDeadlineAt) {
+        item.status = "failed";
+        item.error = "TIMEOUT: contact sheet deadline exhausted";
+        items.push(item);
+        continue;
+      }
       try {
         const resolved = await this.index.resolve(workspace, p);
         const buf = await readCapped(resolved.canonical, resolved.rel, this.m.maxMediaFileBytes);
