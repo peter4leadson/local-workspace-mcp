@@ -412,8 +412,9 @@ describe("AUDIT: metadata-only, no write primitive", () => {
 
   it("never stores absolute host paths in the audit target", async () => {
     // AuditLog refuses to write through symlinked path components; macOS
-    // os.tmpdir() lives under /var -> /private/var, so use a symlink-free root.
-    const auditDir = fs.mkdtempSync("/private/tmp/lwm-audit-");
+    // os.tmpdir() lives under /var -> /private/var, so canonicalize to a
+    // symlink-free root first (no-op on Linux).
+    const auditDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "lwm-audit-"));
     const auditFile = path.join(auditDir, "audit-real.jsonl");
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
     const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
