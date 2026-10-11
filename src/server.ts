@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import path from "node:path";
 import { z } from "zod";
 import { WorkspaceIndex, ToolError, type ErrorCode } from "./paths.js";
 import { DenyPolicy } from "./policy.js";
@@ -79,6 +80,25 @@ function err(code: ErrorCode, message: string) {
 export function createServer(deps: Deps): McpServer {
   const { cfg, index, fsOps, gitOps, tasks, audit, policy } = deps;
 
+  /** Scrub a caller-supplied audit target so the log never stores full host
+   *  paths: absolute paths inside the workspace root are relativized; other
+   *  absolute paths are masked to `<abs>/<basename>`. Relative targets
+   *  (paths, refs, task ids) pass through unchanged. */
+  const auditTarget = (workspace: string | undefined, target: string | undefined) => {
+    if (!target || !path.isAbsolute(target)) return target;
+    try {
+      const ws = workspace ? index.get(workspace) : undefined;
+      if (ws) {
+        const rel = path.relative(ws.realRoot, path.resolve(target));
+        if (rel === "") return ".";
+        if (!rel.startsWith("..") && !path.isAbsolute(rel)) return rel;
+      }
+    } catch {
+      // workspace unknown/unavailable — mask the absolute path anyway
+    }
+    return `<abs>/${path.basename(target)}`;
+  };
+
   const wrap = <A>(
     tool: string,
     targetOf: (a: A) => { workspace?: string; target?: string },
@@ -86,7 +106,8 @@ export function createServer(deps: Deps): McpServer {
   ) => {
     return async (args: A) => {
       const started = Date.now();
-      const t = targetOf(args);
+      const t0 = targetOf(args);
+      const t = { ...t0, target: auditTarget(t0.workspace, t0.target) };
       try {
         const payload = await fn(args);
         audit.record({
@@ -124,7 +145,8 @@ export function createServer(deps: Deps): McpServer {
   ) => {
     return async (args: A) => {
       const started = Date.now();
-      const t = targetOf(args);
+      const t0 = targetOf(args);
+      const t = { ...t0, target: auditTarget(t0.workspace, t0.target) };
       try {
         const { payload, images } = await fn(args);
         audit.record({

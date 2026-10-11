@@ -59,7 +59,11 @@ npm install -g local-workspace-mcp          # puts workspace-mcp on PATH
 pnpm install && pnpm build && npm link
 
 workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
-$EDITOR ~/.config/local-workspace-mcp/config.json   # replace the example workspace (below)
+
+# REQUIRED: replace the example workspace path with a real absolute path —
+# any editor works; doctor fails until you do
+nano ~/.config/local-workspace-mcp/config.json
+
 workspace-mcp doctor          # must print "doctor: ALL GREEN" (use --json for CI)
 ```
 
@@ -86,8 +90,15 @@ Minimal working config (strict JSON — no comments or trailing commas):
 }
 ```
 
-Then connect a host (below), confirm it registered (`claude mcp list`,
-`/mcp`, or your host's equivalent), and ask: _"use workspace_roots, then
+Then register the server with a host. For Claude Code:
+
+```sh
+claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio
+claude mcp list        # confirm it registered
+```
+
+Other hosts use config-file entries (below — substitute the absolute path
+from `which workspace-mcp`). Then ask: _"use workspace_roots, then
 fs_list on myproj"_. First useful call sequence: `fs_list` → `git_status`
 → `git_diff` on uncommitted work, where a chat client otherwise
 has no eyes.
@@ -247,10 +258,12 @@ workspace served to a cloud connector.
   sanitized environment, per-task timeout and output caps. Operator env
   cannot inject `GIT_*`, loader, or interpreter hooks.
 - **Errors are bounded:** every failure is `CODE: message`; absolute host
-  paths are scrubbed from tool errors, except that a task-spawn failure
-  reports the operator-configured argv itself. `task_run` returns subprocess
-  stdout/stderr verbatim — that output belongs to commands the operator
-  allowlisted.
+  paths are scrubbed from server-generated tool errors, except that a
+  task-spawn failure reports the operator-configured argv itself.
+  `task_run` returns subprocess stdout/stderr with the task's configured
+  `cwd` and workspace-root strings replaced by `<root>` — other absolute
+  paths a command prints are not scrubbed; that output belongs to
+  commands the operator allowlisted.
 
 Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
 `RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`, `UNSUPPORTED_FORMAT`,

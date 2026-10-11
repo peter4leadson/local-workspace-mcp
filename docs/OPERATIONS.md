@@ -32,8 +32,9 @@ server still starts — that workspace reports `WORKSPACE_UNAVAILABLE`.
 - Operational: single line to **stderr** on startup (stdout is the protocol).
 - Audit: `~/.config/local-workspace-mcp/audit.jsonl` — one JSON object per
   call: `ts, tool, workspace, target, ok, code, durationMs, truncated`.
-  `target` echoes the caller-supplied path as given (an in-root absolute
-  path argument is logged verbatim); the server never writes file contents,
+  `target` is the caller-supplied path scrubbed: absolute paths inside the
+  workspace root are recorded root-relative; other absolute paths are
+  masked to `<abs>/<basename>`. The server never writes file contents,
   env values, or server-resolved absolute paths. Best-effort: append
   failures are dropped rather than failing calls. Rotate by
   deleting/truncating the file; it is append-only metadata.
