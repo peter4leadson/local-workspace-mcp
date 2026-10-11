@@ -31,22 +31,22 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 
 ## Gate evidence (exact-SHA bound)
 
-| Gate                                 | Result | Evidence                                                                                                 |
-| ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------- |
-| Tests                                | PASS   | `pnpm test` — 275/275 (11 files) at `5fda776`; 71 media + 14 red-team + 33 adversarial cases             |
-| Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                             |
-| Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                           |
-| Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`  |
-| Independent red team (round 4)       | PASS   | `b4cc053` → DO_NOT_SHIP (narrow): RT-1/RT-3 demonstrated defeats + RT-2/RT-4 — all fixed in `070e932`    |
-| Independent re-review of remediation | PASS   | clean-context verify on `070e932` → SHIP; residuals closed at `08f326f`                               |
-| Final independent verification       | PEND.  | clean-context verify on `08f326f` → REMEDIATE (narrow): tail-window eviction in the streamed armor scan — fixed `5fda776`; focused re-verify in flight |
-| ATAM architecture review             | PASS   | adequate-for-release verdict, no blocking findings; 5 required mitigations all closed in `070e932`       |
-| Packaged install                     | PASS   | `npm pack` tarball → isolated unprivileged prefix; `workspace-mcp doctor` green; 23 tools via stdio      |
-| Node support                         | PASS   | verified 20.11 / 22.12 / 24.21 (declared `>=20`); `engines` + `os:[darwin,linux]` in package.json        |
-| Native deps                          | PASS   | sharp prebuilds on macOS-arm64 + linux-x64 (container check); pdfium.wasm loads; no install scripts      |
-| Rollback                             | PASS   | `npm i -g local-workspace-mcp@0.1.0` installs, initializes, serves 14 tools                              |
-| Denials                              | PASS   | OUTSIDE_ROOT / ACCESS_DENIED / traversal / symlink / `.env`-class paths refused on the installed package |
-| Stray writes                         | PASS   | no filesystem writes outside the workspace-scoped call paths observed during install+smoke               |
+| Gate                                 | Result | Evidence                                                                                                                                                                   |
+| ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tests                                | PASS   | `pnpm test` — 275/275 (11 files) at `5fda776`; 71 media + 14 red-team + 33 adversarial cases                                                                               |
+| Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                                                                                               |
+| Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                                                                                             |
+| Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`                                                                    |
+| Independent red team (round 4)       | PASS   | `b4cc053` → DO_NOT_SHIP (narrow): RT-1/RT-3 demonstrated defeats + RT-2/RT-4 — all fixed in `070e932`                                                                      |
+| Independent re-review of remediation | PASS   | clean-context verify on `070e932` → SHIP; residuals closed at `08f326f`                                                                                                    |
+| Final independent verification       | PASS   | clean-context verify on `08f326f` → REMEDIATE (narrow): tail-window eviction; fixed `5fda776`, focused re-verify → CLOSED (code-verified, repro pinned by regression test) |
+| ATAM architecture review             | PASS   | adequate-for-release verdict, no blocking findings; 5 required mitigations all closed in `070e932`                                                                         |
+| Packaged install                     | PASS   | `npm pack` tarball → isolated unprivileged prefix; `workspace-mcp doctor` green; 23 tools via stdio                                                                        |
+| Node support                         | PASS   | verified 20.11 / 22.12 / 24.21 (declared `>=20`); `engines` + `os:[darwin,linux]` in package.json                                                                          |
+| Native deps                          | PASS   | sharp prebuilds on macOS-arm64 + linux-x64 (container check); pdfium.wasm loads; no install scripts                                                                        |
+| Rollback                             | PASS   | `npm i -g local-workspace-mcp@0.1.0` installs, initializes, serves 14 tools                                                                                                |
+| Denials                              | PASS   | OUTSIDE_ROOT / ACCESS_DENIED / traversal / symlink / `.env`-class paths refused on the installed package                                                                   |
+| Stray writes                         | PASS   | no filesystem writes outside the workspace-scoped call paths observed during install+smoke                                                                                 |
 
 ## Host verification
 
@@ -95,10 +95,9 @@ attacker-in-root exclusions, sync-WASM unpreemptibility inside one call.
 
 ## Decision
 
-**HOLD pending two items:** (1) focused re-verify of the window-eviction fix on
-`5fda776` (in flight at the time of this record); (2) owner authorization
-to tag/publish. ChatGPT E2E is **not** a ship-blocker — it is a documented
-host-compat limitation, not a server defect.
+**HOLD pending one item:** owner authorization to tag/publish. ChatGPT E2E
+is **not** a ship-blocker — it is a documented host-compat limitation,
+not a server defect.
 
 Rollback plan if 0.2.0 must be withdrawn after publish: `npm deprecate`
 the version with a pointer, `dist-tag latest → 0.1.0`, registry entry
