@@ -9,15 +9,15 @@ and deliberately excluded from the npm tarball.
 
 ## Candidate identity
 
-| Item                 | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| Branch / PR          | `feat/multimodal-file-access` — PR #1                             |
-| Release-reviewed SHA | `5fda776` (code; HEAD adds docs-only commits — see Gate evidence) |
-| package.json version | `0.2.0`                                                           |
-| server.json version  | `0.2.0`                                                           |
-| MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`                |
-| Tool count           | 23 (14 baseline + 9 media/document tools)                         |
-| Prior release        | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`               |
+| Item                 | Value                                                                                                                                     |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch / PR          | `feat/multimodal-file-access` — PR #1                                                                                                     |
+| Release-reviewed SHA | `891ec53` (code; supersedes `5fda776` — two narrow EA-remediation changes: audit-target scrub + init-config message; see §Golden Chassis) |
+| package.json version | `0.2.0`                                                                                                                                   |
+| server.json version  | `0.2.0`                                                                                                                                   |
+| MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`                                                                                        |
+| Tool count           | 23 (14 baseline + 9 media/document tools)                                                                                                 |
+| Prior release        | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`                                                                                       |
 
 ## What's new (user-facing)
 
@@ -33,7 +33,7 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 
 | Gate                                 | Result | Evidence                                                                                                                                                                   |
 | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tests                                | PASS   | `pnpm test` — 275/275 (11 files) at `5fda776`; 71 media + 14 red-team + 33 adversarial cases                                                                               |
+| Tests                                | PASS   | `pnpm test` — 276/276 (11 files) at `891ec53`; includes audit-target regression from seat remediation                                                                      |
 | Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                                                                                               |
 | Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                                                                                             |
 | Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`                                                                    |
@@ -92,6 +92,37 @@ In-process native raster decode (libvips memory-safety), SVG
 scan-not-sandbox posture, content-marker scope (key armor only, not
 general secrets), ~64-file search-scan budget, TOCTOU/hardlink
 attacker-in-root exclusions, sync-WASM unpreemptibility inside one call.
+
+## Golden Chassis EA pass (strict, 2026-10-11)
+
+Real pinned skills invoked one at a time — ECC v2.2.1 `5064474`, ui-craft
+1.0.0, standalone humanizer — on code SHA `5fda776` → remediated at
+`098d6c4`/`891ec53`. Independent seats are fresh-context `codex exec`
+processes (read-only repo, scratch-confined), not self-certification.
+
+| Stage       | Skill                             | Result                                                                                                                                                                                                                                                                                                                                                |
+| ----------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GROUND      | market-research                   | 0.2.0 multimodal competitive delta appended to `research/audience-corpus.md` (official `read_media_file`, read-only fs servers, FileCommander, host image matrix)                                                                                                                                                                                     |
+| GROUND      | competitive-platform-analysis     | tiered competitor set + scoring matrix appended (superseding, not rewriting, the frozen 0.1.0 analysis)                                                                                                                                                                                                                                               |
+| POSITIONING | Dunford-style eval                | `research/positioning.md` 0.2.0 section — bounded-media differentiation, task disclosure preserved                                                                                                                                                                                                                                                    |
+| PATTERNS    | mcp-server-patterns               | all 23 `registerTool` + zod schemas + transport separation + `CODE: message` + honest annotations + SDK pin — **no findings**                                                                                                                                                                                                                         |
+| LANGUAGE    | humanizer                         | full tell-scan over shipped docs — no rewrite targets; em-dashes are functional separators (0.1.0 precedent)                                                                                                                                                                                                                                          |
+| LANGUAGE    | ui-craft `clarify`                | 1 fix: `init-config` refusal now names recovery (`098d6c4`); errors/verbs/confirmations otherwise clean                                                                                                                                                                                                                                               |
+| STRUCTURE   | ui-craft `heuristic`              | scorecard: Nielsen mean 4.1, UsabilityScore 73/C → **Miller's Law FAIL** (14-section README, no TOC) → fixed; recomputed 78                                                                                                                                                                                                                           |
+| STRUCTURE   | ui-craft `critique`               | 2 findings closed: ~90-word ChatGPT table cell slimmed (claims moved to prose), mini-TOCs added to OPERATIONS + THREAT-MODEL                                                                                                                                                                                                                          |
+| STATES      | ui-craft `unhappy`                | 1 finding closed: media `TIMEOUT` code was live but undocumented — added to error enumeration + troubleshooting row                                                                                                                                                                                                                                   |
+| STATES      | ui-craft `audit`                  | a11y/perf/responsive clean at 320/375/768/1440 light+dark; 0px page overflow; tables scroll internally (correct GFM)                                                                                                                                                                                                                                  |
+| STATES      | ui-craft `harden`                 | 9-item matrix + docs-page archetype coverage — all present/not-needed; no fixes                                                                                                                                                                                                                                                                       |
+| SECURITY    | security-review + G5 supply-chain | secrets sweep clean on committed+working diffs; `pnpm audit` (prod+dev) clean; 106 licenses (1 LGPL libvips, documented); CycloneDX SBOM 130 components; exact pins + committed lockfile + `minimum-release-age=10080`                                                                                                                                |
+| SEATS       | 4 fresh-context codex exec        | A onboarding **FAIL** → 3 fixed; B security-comprehension **FAIL** → 2 MAJOR + 1 MINOR fixed (incl. `auditTarget()` code fix + regression); C maintainability **PASS** (2 MINOR fixed); D rendered **FAIL** → both findings verified as artifact false-positives (API fragment lacks heading ids by design; `text` fences render classless by design) |
+| RENDERED    | mechanical checks                 | 26/26 TOC anchors valid under github-slugger; all internal links resolve; fences balanced+tagged; strict-JSON parses; 16 PNGs in `research/rendered/0.2.0/`; 0px overflow probes                                                                                                                                                                      |
+| RE-VERIFY   | focused codex exec                | seat-finding closures independently re-checked on `891ec53` — verdict recorded below                                                                                                                                                                                                                                                                  |
+
+**Code-level changes from this pass** (beyond docs): `src/server.ts`
+`auditTarget()` — audit `target` no longer stores caller-supplied absolute
+host paths (in-root → relativized, other → `<abs>/<basename>`), regression
+tested; `src/cli.ts` — `init-config` refusal names the recovery action.
+275→276 tests.
 
 ## Decision
 
