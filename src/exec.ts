@@ -58,10 +58,12 @@ export function runBounded(file: string, args: string[], opts: BoundedOptions): 
     child.stderr?.on("data", (c: Buffer) => push(stderr, c));
 
     let settled = false;
+    let fallback: NodeJS.Timeout | undefined;
     const finish = (code: number | null, signal: NodeJS.Signals | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (fallback) clearTimeout(fallback);
       resolve({
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
@@ -90,7 +92,8 @@ export function runBounded(file: string, args: string[], opts: BoundedOptions): 
       child.stdout?.destroy();
       child.stderr?.destroy();
       child.once("exit", (code, signal) => finish(code, signal));
-      setTimeout(() => finish(null, "SIGKILL"), 5000).unref();
+      fallback = setTimeout(() => finish(null, "SIGKILL"), 5000);
+      fallback.unref();
     }, opts.timeoutMs);
 
     child.on("error", (err) => {

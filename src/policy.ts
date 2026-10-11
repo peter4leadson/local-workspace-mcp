@@ -207,7 +207,10 @@ export class DenyPolicy {
     // deny rules (`.env `, `.env\t`). Git object paths can carry them even
     // though fs paths can't, so check both the literal and trimmed spelling
     // — deny on either, never allow on the trimmed spelling alone.
-    const trimmed = rel.replace(/^[\s\x00-\x1f\x7f]+|[\s\x00-\x1f\x7f]+$/g, "");
+    const trimmed = rel.replace(
+      /^[\s\x00-\x1f\x7f\u0085\u200b\ufeff]+|[\s\x00-\x1f\x7f\u0085\u200b\ufeff]+$/g,
+      ""
+    );
     const spellings = trimmed === rel ? [rel] : [rel, trimmed];
     const bases = spellings.map((s) => s.split("/").pop() ?? s);
     const matchDeny = (rule: { pattern: string }) =>

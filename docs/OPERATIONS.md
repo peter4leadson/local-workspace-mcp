@@ -7,7 +7,8 @@ workspace-mcp doctor           # deterministic check battery; exit 0 = healthy
 workspace-mcp doctor --json    # machine-readable
 ```
 
-Checks: build identity → Node ≥20 → config file permissions (not
+Checks: build identity → Node ≥20 → platform (POSIX only: darwin/linux) →
+config file permissions (not
 group/world-writable, not a symlink) → config parse → each root
 exists+is-dir → `git` and `rg` on sanitized PATH → every configured task
 executable resolvable → deny policy self-test → MCP tool-registration
@@ -51,6 +52,12 @@ override is schema-checked:
 | `pdfMaxPagesText`      | 50      | 200        | pages per `fs_pdf_text` call                         |
 | `pdfMaxRenderPixels`   | 6.25 MP | 25 MP      | per-page render area                                 |
 | `mediaTimeoutMs`       | 30 s    | 120 s      | wall-clock deadline per media op                     |
+
+Multi-item calls also carry cumulative budgets: `fs_contact_sheet` spends
+at most 3× `mediaTimeoutMs` across all cells (remaining cells degrade to
+failed placeholders), and `fs_pdf_page` at most 2× across its page set.
+`task_run` resolves on kill + `exit` — detached grandchildren cannot hold
+a call open via inherited pipes.
 
 Notes:
 

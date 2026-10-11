@@ -56,6 +56,25 @@ describe("RT-1: mid-word armor split defeats nothing (all scan surfaces)", () =>
     await expect(ops.read("test", "notes-split.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
   });
 
+  it("fs_read refuses armor split across a >128-whitespace gap (window-exhaustion regression)", async () => {
+    // Re-verify finding 1: a raw-char rolling window could be exhausted by
+    // whitespace; the window now counts non-whitespace chars only.
+    fs.writeFileSync(
+      path.join(f.wsDir, "gap-split.txt"),
+      "x".repeat(9_000) + "\n-----BEGIN PRIVAT" + "\n".repeat(200) + "E KEY-----\nQUJD\n"
+    );
+    await expect(ops.read("test", "gap-split.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+  });
+
+  it("bufferHasKeyMaterial catches split armor even with an embedded NUL", () => {
+    // Re-verify finding 2: a single NUL byte must not exempt the compact pass.
+    const buf = Buffer.concat([
+      Buffer.from("prefix\x00-----BEGIN PRIVAT\nE KEY-----\n", "latin1"),
+      Buffer.from("QUJD\n", "latin1"),
+    ]);
+    expect(bufferHasKeyMaterial(buf)).toBe(true);
+  });
+
   it("git_show refuses a tracked blob whose armor is split mid-word", async () => {
     const p = path.join(f.wsDir, "splitkey.txt");
     fs.writeFileSync(p, "-----BEGIN PRIVAT\nE KEY-----\nQUJD\n-----END PRIVATE KEY-----\n");
@@ -84,6 +103,10 @@ describe("RT-2: trailing-char deny evasion closed at the policy layer", () => {
     expect(policy.check(".env ")).not.toBeNull();
     expect(policy.check(".env\t")).not.toBeNull();
     expect(policy.check(".env")).not.toBeNull();
+    // unicode separators (NEL / ZWSP / BOM) — the trim class covers them
+    expect(policy.check(".env\u0085")).not.toBeNull();
+    expect(policy.check(".env\u200b")).not.toBeNull();
+    expect(policy.check(".env\ufeff")).not.toBeNull();
     expect(policy.check(".env.example ")).not.toBeNull(); // trimmed spelling denies; only the literal spelling can allow
     expect(policy.check("src/hello.txt ")).toBeNull();
   });

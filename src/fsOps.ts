@@ -193,13 +193,14 @@ export class FsOps {
       crlfDelay: Infinity,
     });
     let scanned = 0;
-    // Rolling tail: an armor marker split mid-word across lines (`PRIVAT` /
-    // `E KEY`) is invisible to per-line checks; the last-128-char window
-    // covers a marker split over several short lines.
+    // Rolling tail of the last non-whitespace chars: an armor marker split
+    // mid-word across lines (`PRIVAT` / `E KEY`) is invisible to per-line
+    // checks, and counting raw chars lets >128 whitespace chars exhaust the
+    // window. The zero-collapse pass rejoins a marker however it was split.
     let tail = "";
     try {
       for await (const line of rl) {
-        tail = (tail + "\n" + line).slice(-128);
+        tail = (tail + line.replace(/\s+/g, "")).slice(-128);
         if (hasPrivateKeyMaterial(tail)) return true;
         scanned += line.length + 1;
         if (maxBytes !== undefined && scanned > maxBytes) return false;

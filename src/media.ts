@@ -159,7 +159,7 @@ export function bufferHasKeyMaterial(buf: Buffer): boolean {
     if (KEY_ARMOR_RE.test(buf.toString("latin1"))) return true;
   }
   const s = buf.toString("latin1");
-  return !s.includes("\0") && KEY_ARMOR_RE_COMPACT.test(s.replace(/\s+/g, ""));
+  return KEY_ARMOR_RE_COMPACT.test(s.replace(/[\s\0]+/g, ""));
 }
 
 /** Read a whole file under a byte cap. Used by media tools only — callers

@@ -51,9 +51,11 @@ export class TaskRunner {
       env: taskEnv(def.env),
     });
     // Same host-path posture as rg/git stderr: absolute root paths in task
-    // output get replaced by the <root> placeholder.
-    const esc = cwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const scrub = (s: string) => s.replace(new RegExp(esc, "gi"), "<root>");
+    // output get replaced by the <root> placeholder. Scrub both the task cwd
+    // and the workspace root — a def.cwd subdir would otherwise leak the
+    // parent root.
+    const scrubRes = [cwd, ws.realRoot].map((p) => new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"));
+    const scrub = (s: string) => scrubRes.reduce((acc, re) => acc.replace(re, "<root>"), s);
     return {
       workspace: workspaceId,
       taskId,
