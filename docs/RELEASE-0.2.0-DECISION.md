@@ -9,15 +9,15 @@ and deliberately excluded from the npm tarball.
 
 ## Candidate identity
 
-| Item                 | Value                                                         |
-| -------------------- | ------------------------------------------------------------- |
-| Branch / PR          | `feat/multimodal-file-access` — PR #1                         |
-| Release-reviewed SHA | `5fda776` (code; HEAD adds docs-only commits — see §Security) |
-| package.json version | `0.2.0`                                                       |
-| server.json version  | `0.2.0`                                                       |
-| MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`            |
-| Tool count           | 23 (14 baseline + 9 media/document tools)                     |
-| Prior release        | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`           |
+| Item                 | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| Branch / PR          | `feat/multimodal-file-access` — PR #1                             |
+| Release-reviewed SHA | `5fda776` (code; HEAD adds docs-only commits — see Gate evidence) |
+| package.json version | `0.2.0`                                                           |
+| server.json version  | `0.2.0`                                                           |
+| MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`                |
+| Tool count           | 23 (14 baseline + 9 media/document tools)                         |
+| Prior release        | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`               |
 
 ## What's new (user-facing)
 
