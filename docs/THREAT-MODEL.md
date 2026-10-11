@@ -165,6 +165,17 @@ build) closed in the same pass:
 | V-5 | INFO | namespace-prefixed `<x:script>`/`<x:foreignObject>` evaded element checks → prefix-tolerant patterns.                                                                                          |
 | V-6 | LOW  | pre-existing: `fsOps` line-level armor scan can miss markers split across lines beyond the sniff head (`fs_read`/`fs_search_content` path — unaffected by this diff) → tracked as a follow-up. |
 
+A focused verify pass on the V-round commit added (all LOW, same
+inert-on-bundled-librsvg posture):
+
+| ID  | Sev  | Finding → Fix                                                                                                                                            |
+| --- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F-1 | LOW  | a `#`-leading arg inside a multi-arg CSS fn could swallow a nested `url(file:///…)` → `(` excluded from the function-arg capture.                        |
+| F-2 | LOW  | SMIL check missed relative IRIs (`to="../x"` resolves off the file: base) → segments containing `..`, `/`, `\`, or a scheme refused.                     |
+| F-3 | LOW  | entity-encoded `\&#13;&#10;` continuations survived CRLF normalization → CSS continuation rule consumes `[\n\r\f]+`.                                     |
+| F-4 | INFO | `\\host` UNC over-decoded to `\h` before the SMIL check → covered by the `\\`/`/`/`..` segment refusal.                                                  |
+| F-5 | INFO | fail-closed false-positive surface (benign `src(foo)` text, quoted `image-set("a.png" 1x)` args refused) — accepted posture for a defense-in-depth scan. |
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is

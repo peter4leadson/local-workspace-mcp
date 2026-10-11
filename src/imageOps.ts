@@ -73,7 +73,7 @@ function decodeXmlEntities(s: string): string {
 // codepoint; \ + newline is a line continuation (removed); \ + anything else
 // yields that literal character — so `\i` in `@\import` decodes to `i`.
 function decodeCssEscapes(s: string): string {
-  return s.replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\[\n\r\f]|\\([\s\S])/g, (_m, hex?: string, ch?: string) => {
+  return s.replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\[\n\r\f]+|\\([\s\S])/g, (_m, hex?: string, ch?: string) => {
     if (hex !== undefined) {
       const n = parseInt(hex, 16);
       return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
@@ -82,7 +82,9 @@ function decodeCssEscapes(s: string): string {
   });
 }
 
-const CSS_REF_FN = /(?:url|image|image-set|src|cross-fade)\s*\(\s*['"]?([^'")]+?)['"]?\s*\)/gi;
+// Capture excludes ( so a `#`-leading first argument cannot swallow a nested
+// url(file:///…) into an allowlisted match.
+const CSS_REF_FN = /(?:url|image|image-set|src|cross-fade)\s*\(\s*['"]?([^'"()]+?)['"]?\s*\)/gi;
 
 export function svgExternalRefReason(svgRaw: string): string | null {
   // XML normalizes CRLF→LF in text before parsing; match that or a `\<CR><LF>`
@@ -103,10 +105,12 @@ export function svgExternalRefReason(svgRaw: string): string | null {
     return `external-href:${v.slice(0, 32)}`;
   }
   // SMIL mutation vectors carry URLs in value attributes (to=/values=…).
+  // Refuse scheme-like, absolute, relative, and backslash/UNC spellings —
+  // `../x` resolves against the document's file: base just like an href.
   for (const m of svg.matchAll(/\b(?:to|from|by|values)\s*=\s*["']([^"']*)["']/gi)) {
     for (const seg of m[1]!.split(";")) {
       const v = seg.trim();
-      if (/^[a-z][a-z0-9+.-]*\s*:/i.test(v) || v.startsWith("/") || v.startsWith("\\\\")) {
+      if (/^[a-z][a-z0-9+.-]*\s*:/i.test(v) || v.startsWith("/") || v.includes("..") || v.includes("\\")) {
         return `external-smil-value:${v.slice(0, 32)}`;
       }
     }

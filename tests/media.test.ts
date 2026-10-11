@@ -212,6 +212,22 @@ beforeAll(async () => {
     path.join(w, "nsscript.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xhtml" width="40" height="20"><x:script>alert(1)</x:script><rect width="40" height="20"/></svg>`
   );
+  // review-2l: #-leading arg inside a multi-arg fn must not swallow a nested url()
+  fs.writeFileSync(
+    path.join(w, "nestfn.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="cross-fade(#a url(file:///etc/passwd) 50%)"/></svg>`
+  );
+  // review-2m: SMIL to= carrying a relative IRI (resolves off the file: base)
+  fs.writeFileSync(
+    path.join(w, "smilrel.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image id="x" width="40" height="20"><set attributeName="href" to="../secret.png"/></image></svg>`
+  );
+  // review-2n: entity-encoded CRLF continuation — &#13;&#10; survives XML
+  // line normalization, so the CSS continuation rule must consume \r\n too
+  fs.writeFileSync(
+    path.join(w, "entcrlf.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>rect{fill:u\\&#13;&#10;rl(file:///etc/passwd)}</style></defs><rect width="40" height="20"/></svg>`
+  );
   fs.writeFileSync(path.join(w, "proper.jpg"), await sharp(canary).jpeg().toBuffer());
   fs.symlinkSync("canary.png", path.join(w, "imglink.png"));
   fs.writeFileSync(
@@ -479,6 +495,24 @@ describe("fs_image", () => {
 
   it("REG review-2k: namespace-prefixed script element refused", async () => {
     const r = await callRaw("fs_image", { workspace: "test", path: "nsscript.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2l: nested url() inside multi-arg fn refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "nestfn.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2m: SMIL to= relative IRI refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "smilrel.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2n: entity-encoded CRLF continuation refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "entcrlf.svg" });
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/^ACCESS_DENIED/);
   });
