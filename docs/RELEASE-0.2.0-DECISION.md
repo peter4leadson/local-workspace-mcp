@@ -12,7 +12,7 @@ and deliberately excluded from the npm tarball.
 | Item                 | Value                                                       |
 | -------------------- | ----------------------------------------------------------- |
 | Branch / PR          | `feat/multimodal-file-access` — PR #1                       |
-| Release-reviewed SHA | `08f326f` (final re-verification in flight — see §Security) |
+| Release-reviewed SHA | `5fda776` (final re-verification in flight — see §Security) |
 | package.json version | `0.2.0`                                                     |
 | server.json version  | `0.2.0`                                                     |
 | MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`          |
@@ -33,13 +33,13 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 
 | Gate                                 | Result | Evidence                                                                                                 |
 | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------- |
-| Tests                                | PASS   | `pnpm test` — 274/274 (11 files) at `08f326f`; 71 media + 14 red-team + 33 adversarial cases             |
+| Tests                                | PASS   | `pnpm test` — 275/275 (11 files) at `5fda776`; 71 media + 14 red-team + 33 adversarial cases             |
 | Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                             |
 | Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                           |
 | Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`  |
 | Independent red team (round 4)       | PASS   | `b4cc053` → DO_NOT_SHIP (narrow): RT-1/RT-3 demonstrated defeats + RT-2/RT-4 — all fixed in `070e932`    |
 | Independent re-review of remediation | PASS   | clean-context verify on `070e932` → SHIP; residuals closed at `08f326f`                               |
-| Final independent verification       | PEND.  | clean-context verify on `08f326f` in flight                                                              |
+| Final independent verification       | PEND.  | clean-context verify on `08f326f` → REMEDIATE (narrow): tail-window eviction in the streamed armor scan — fixed `5fda776`; focused re-verify in flight |
 | ATAM architecture review             | PASS   | adequate-for-release verdict, no blocking findings; 5 required mitigations all closed in `070e932`       |
 | Packaged install                     | PASS   | `npm pack` tarball → isolated unprivileged prefix; `workspace-mcp doctor` green; 23 tools via stdio      |
 | Node support                         | PASS   | verified 20.11 / 22.12 / 24.21 (declared `>=20`); `engines` + `os:[darwin,linux]` in package.json        |
@@ -95,8 +95,8 @@ attacker-in-root exclusions, sync-WASM unpreemptibility inside one call.
 
 ## Decision
 
-**HOLD pending two items:** (1) independent final verification verdict on
-`08f326f` (in flight at the time of this record); (2) owner authorization
+**HOLD pending two items:** (1) focused re-verify of the window-eviction fix on
+`5fda776` (in flight at the time of this record); (2) owner authorization
 to tag/publish. ChatGPT E2E is **not** a ship-blocker — it is a documented
 host-compat limitation, not a server defect.
 
