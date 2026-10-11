@@ -200,8 +200,11 @@ export class FsOps {
     let tail = "";
     try {
       for await (const line of rl) {
+        // Scan the line joined to the tail before the tail is re-sliced: a
+        // marker more than 128 non-whitespace chars into a long line must
+        // still be seen, and a boundary split rejoins across the tail.
+        if (hasPrivateKeyMaterial(tail + line)) return true;
         tail = (tail + line.replace(/\s+/g, "")).slice(-128);
-        if (hasPrivateKeyMaterial(tail)) return true;
         scanned += line.length + 1;
         if (maxBytes !== undefined && scanned > maxBytes) return false;
       }

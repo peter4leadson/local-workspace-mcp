@@ -66,6 +66,17 @@ describe("RT-1: mid-word armor split defeats nothing (all scan surfaces)", () =>
     await expect(ops.read("test", "gap-split.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
   });
 
+  it("fs_read refuses armor ending >128 chars into a long line (window-eviction regression)", async () => {
+    // Final-verify finding: the tail is a 128-char suffix window — checking it
+    // only post-slice evicts a marker sitting deep in a long line. The line is
+    // now scanned joined to the tail before re-slicing.
+    fs.writeFileSync(
+      path.join(f.wsDir, "deep-line.txt"),
+      "y".repeat(9_000) + "\n-----BEGIN RSA PRIVATE KEY-----" + "z".repeat(300) + "\nQUJD\n"
+    );
+    await expect(ops.read("test", "deep-line.txt")).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+  });
+
   it("bufferHasKeyMaterial catches split armor even with an embedded NUL", () => {
     // Re-verify finding 2: a single NUL byte must not exempt the compact pass.
     const buf = Buffer.concat([
