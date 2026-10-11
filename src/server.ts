@@ -13,6 +13,8 @@ import {
   sha256Hex,
   readCapped,
   mediaLimits,
+  withDeadline,
+  Semaphore,
   NATIVE_IMAGE_KINDS,
   RASTER_MIMES,
 } from "./media.js";
@@ -453,10 +455,12 @@ export function createServer(deps: Deps): McpServer {
   // ---- Media tools (multimodal file access) ------------------------------
 
   const m = mediaLimits(cfg.limits);
-  const imageOps = new ImageOps(index, policy, cfg.limits);
-  const sheets = new ContactSheet(index, policy, cfg.limits);
+  // One process-wide decode budget shared by every media tool class.
+  const mediaSem = new Semaphore(m.mediaConcurrency);
+  const imageOps = new ImageOps(index, policy, cfg.limits, mediaSem);
+  const sheets = new ContactSheet(index, policy, cfg.limits, mediaSem);
   const zipOps = new ZipOps(index, policy, cfg.limits);
-  const pdfOps = new PdfOps(index, policy, cfg.limits);
+  const pdfOps = new PdfOps(index, policy, cfg.limits, mediaSem);
   const officeOps = new OfficeOps(index, policy, cfg.limits);
 
   const fitParam = z
@@ -507,7 +511,7 @@ export function createServer(deps: Deps): McpServer {
         if (kind === "svg") payload.note = "svg is rasterized to png after an external-reference scan";
         if (kind === "bmp" || kind === "tiff") payload.note = `${kind} is transcoded to png on serve`;
       } else if (kind === "zip" || kind === "ooxml") {
-        const arc = await openZipBuffer(buf, policy, m);
+        const arc = await withDeadline(openZipBuffer(buf, policy, m), m.mediaTimeoutMs, "zip enumeration");
         try {
           payload.memberCount = arc.entries.length;
           payload.fileCount = arc.entries.filter((e) => e.type === "file").length;

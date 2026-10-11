@@ -120,6 +120,22 @@ A follow-up verification pass on the F-round fixes added:
 | NF-5 | LOW  | `otherDiffPaths` line cap → scans until first `@@` hunk marker.                                                                                                  |
 | NF-6 | LOW  | config-symlink refusal may surprise dotfiles setups; `/tmp` configs refused by dir-perm check — documented behavior.                                             |
 
+Independent media-layer review (2026-10-11, commit `2f192ff`):
+
+| ID   | Sev  | Finding → Fix                                                                                                                                                                                    |
+| ---- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R-1  | HIGH | `data:image/svg+xml` nested docs bypassed the SVG external-ref scan — inner `file://` hrefs rasterized out-of-root files into returned pixels → data URIs now allowlist raster image MIMEs only. |
+| R-2  | HIGH | whitespace inside quoted `url("…")` and CSS-escaped `@impo\72t` evaded the scan → CSS-escape decode pass + trimmed-quote capture + at-rule broadening.                                           |
+| R-3  | MED  | transform metadata lacked `sourceSha256`/`returnedSha256` — spec contract breach → both hashes emitted on every re-encode.                                                                       |
+| R-4  | MED  | extracted office/pdf text skipped the armor scan → `hasPrivateKeyMaterial` on every section/page before emission.                                                                                |
+| R-5  | MED  | duplicate member names desynced validation vs decompression → second dup flagged `unsafe:duplicate-name`, first wins deterministically.                                                          |
+| R-6  | MED  | semaphore released on deadline while native decode continued (zombie decodes) → deadline races `sem.run`, slot held until work settles; one shared semaphore.                                    |
+| R-7  | LOW  | trailing-space member names evaded the deny check → trimmed spelling also checked.                                                                                                               |
+| R-8  | LOW  | `dir/` members misclassified `file` after normalization → type computed on the raw name.                                                                                                         |
+| R-9  | LOW  | `format` ignored when serving originals → excluded from the serve-original fast path.                                                                                                            |
+| R-10 | LOW  | `fs_inspect` zip enumeration lacked the wall-clock deadline → wrapped; dead helpers removed.                                                                                                     |
+| R-11 | LOW  | `endPage<startPage` silently returned empty → INVALID_ARGUMENT; `textProbePages` disclosed on `fs_pdf_info`.                                                                                     |
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
@@ -163,6 +179,21 @@ A follow-up verification pass on the F-round fixes added:
    call, files get head-only sniff + per-preview marker checks — a key
    buried deep in a large file beyond the budget could leak base64 lines
    lacking the marker. Bounded 240-char previews limit blast.
+10. **SVG rasterization is a scan, not a sandbox**: the external-reference
+    scan (`svgExternalRefReason`) is a conservative allowlist evaluated
+    before librsvg sees the file — but librsvg still parses adversarial XML.
+    Rasterization failures return bounded errors; pixel caps and the shared
+    decode semaphore bound resource use. SVGs are attacker-controlled XML —
+    treat the format as permanently watchlisted.
+11. **Encrypted archive members are refused, not decrypted**: any member
+    with the encryption bit set fails closed. Encrypted archives therefore
+    expose member _names_ only — the same existence-oracle class as denied
+    file listings.
+12. **ChatGPT connector caching**: the connector layer may retain a frozen
+    `tools/list` snapshot and may drop `image` content blocks entirely —
+    every image tool therefore also returns full metadata as text +
+    `structuredContent`. Host-side visual delivery is verified separately
+    per host, never assumed from Inspector behavior.
 
 ## Failure policy
 

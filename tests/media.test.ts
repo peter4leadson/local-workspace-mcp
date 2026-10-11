@@ -146,6 +146,25 @@ beforeAll(async () => {
     path.join(w, "evil.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image href="file:///etc/passwd" width="40" height="20"/><image href="https://evil.example/x.png"/></svg>`
   );
+  // Nested data-URI SVG smuggling a file:// ref (review finding: data: must
+  // not bypass the scan — only raster payloads are safe inline)
+  const nested = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd" width="400" height="400"/></svg>`
+  ).toString("base64");
+  fs.writeFileSync(
+    path.join(w, "nested.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image href="data:image/svg+xml;base64,${nested}"/></svg>`
+  );
+  fs.writeFileSync(
+    path.join(w, "wsurl.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>rect{fill:url(" file:///etc/passwd ")}</style></defs><rect width="40" height="20"/></svg>`
+  );
+  fs.writeFileSync(
+    path.join(w, "cssescape.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>@impo\\72t "x.css";</style></defs><rect width="40" height="20"/></svg>`
+  );
+  fs.writeFileSync(path.join(w, "proper.jpg"), await sharp(canary).jpeg().toBuffer());
+  fs.symlinkSync("canary.png", path.join(w, "imglink.png"));
   fs.writeFileSync(
     path.join(w, "scripted.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><script>alert(1)</script><rect width="40" height="20"/></svg>`
@@ -170,9 +189,12 @@ beforeAll(async () => {
       { name: "notes/readme.txt", data: "inside archive hello\nline two\n" },
       // placeholder ZZZZZZ → patched to ../../ after build (yazl refuses "..")
       { name: "ZZZZZZescape.txt", data: "traversal" },
-      { name: "abs.txt", data: "ok" },
+      // placeholder QQQQQQ → patched to /evil/ (absolute member name)
+      { name: "QQQQQQabs.txt", data: "absolute member" },
       { name: ".env", data: "SECRET=inside-zip\n" },
+      { name: ".env ", data: "SECRET=trailing-space\n" },
       { name: "keys/priv.pem", data: "-----BEGIN PRIVATE KEY-----\nMC4CAQ\n" },
+      { name: "notes/report.txt", data: "benign name but -----BEGIN PRIVATE KEY-----\nMC4CAQ\n" },
       { name: "zeros.bin", data: Buffer.alloc(2_000_000, 0x30) },
       { name: "nested.zip", data: inner },
       // symlink entry: unix mode S_IFLNK|0777
@@ -181,7 +203,28 @@ beforeAll(async () => {
     "ZZZZZZ",
     "../../"
   );
-  fs.writeFileSync(path.join(w, "archive.zip"), archive);
+  const patched = patchZipName(archive, "QQQQQQ", "/evil/");
+  fs.writeFileSync(path.join(w, "archive.zip"), patched);
+
+  // duplicate-name desync fixture: two members, same name, different bytes
+  const dup = await buildZip([
+    { name: "dup.txt", data: "FIRST member wins — declared small" },
+    { name: "dup.txt", data: "SECOND member must never be served" },
+  ]);
+  fs.writeFileSync(path.join(w, "dupes.zip"), dup);
+  // member-count cap fixture: 7 members, tested against an override of 5
+  fs.writeFileSync(
+    path.join(w, "many.zip"),
+    await buildZip([1, 2, 3, 4, 5, 6, 7].map((i) => ({ name: `f${i}.txt`, data: `m${i}` })))
+  );
+
+  fs.writeFileSync(path.join(w, "armor.docx"), await buildZip([
+    { name: "[Content_Types].xml", data: `<?xml version="1.0"?><Types xmlns="x"/>` },
+    { name: "word/document.xml", data: `<?xml version="1.0"?><w:document xmlns:w="w"><w:body><w:p><w:r><w:t>-----BEGIN PRIVATE KEY-----\nMC4CAQ</w:t></w:r></w:p></w:body></w:document>` },
+  ]));
+  fs.writeFileSync(path.join(w, "armor.pdf"), makePdf(["-----BEGIN PRIVATE KEY----- MC4CAQ"]));
+  // image-only page: no text operators at all
+  fs.writeFileSync(path.join(w, "scan.pdf"), makePdf([""]));
   fs.writeFileSync(path.join(w, "corrupt.zip"), Buffer.concat([archive.subarray(0, 60), Buffer.from("TRUNCATED")]));
 
   fs.writeFileSync(path.join(w, "one.pdf"), makePdf(["CANARY PDF PAGE ONE 4242"]));
@@ -302,6 +345,33 @@ describe("fs_image", () => {
     const r = await callRaw("fs_image", { workspace: "test", path: "scripted.svg" });
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-1: data:image/svg+xml nested doc refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "nested.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2: whitespace-inside-quotes url() refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "wsurl.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2b: css-escaped @import refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "cssescape.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("P2 jpeg serves natively; P3 in-root symlinked image serves", async () => {
+    const j = await callRaw("fs_image", { workspace: "test", path: "proper.jpg" });
+    expect(j.isError).toBe(false);
+    expect(j.images[0]!.mimeType).toBe("image/jpeg");
+    const l = await callRaw("fs_image", { workspace: "test", path: "imglink.png" });
+    expect(l.isError).toBe(false);
+    expect(l.images.length).toBe(1);
   });
 
   it("N11 armor marker inside PNG tEXt refused by content class", async () => {
@@ -442,6 +512,50 @@ describe("fs_archive_list / fs_archive_entry", () => {
     expect(r.text).toMatch(/^ACCESS_DENIED/);
   });
 
+  it("N14 absolute member name refused at preview and flagged in list", async () => {
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "/evil/abs.txt" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^(INVALID_ARGUMENT|ACCESS_DENIED)/);
+    const list = await callRaw("fs_archive_list", { workspace: "test", path: "archive.zip" });
+    const abs = (list.parsed!.entries as { unsafe?: string }[]).find((e) => e.unsafe === "absolute-path");
+    expect(abs).toBeTruthy();
+  });
+
+  it("deny evasion via trailing-space member name refused", async () => {
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: ".env " });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).not.toContain("trailing-space");
+  });
+
+  it("N17b armor under a benign member name refused by content class", async () => {
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "notes/report.txt" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-5: duplicate member — second flagged, first served", async () => {
+    const list = await callRaw("fs_archive_list", { workspace: "test", path: "dupes.zip" });
+    const dupes = (list.parsed!.entries as { name: string; unsafe?: string }[]).filter((e) => e.name === "dup.txt");
+    expect(dupes.length).toBe(2);
+    expect(dupes.filter((d) => d.unsafe === "duplicate-name").length).toBe(1);
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "dupes.zip", member: "dup.txt" });
+    expect(r.isError).toBe(false);
+    expect(r.parsed!.text).toContain("FIRST member");
+    expect(r.parsed!.text).not.toContain("SECOND");
+  });
+
+  it("N19 member-count cap truncates listing", async () => {
+    const tight = await connectClient(f, { archiveMaxMembers: 5 });
+    try {
+      const r = await tight.callTool({ name: "fs_archive_list", arguments: { workspace: "test", path: "many.zip" } });
+      const p = JSON.parse((r.content as { text: string }[])[0]!.text);
+      expect(p.truncated).toBe(true);
+    } finally {
+      await tight.close();
+    }
+  });
+
   it("N15 symlink member refused at preview", async () => {
     const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "linky.txt" });
     expect(r.isError).toBe(true);
@@ -512,6 +626,27 @@ describe("fs_pdf_*", () => {
     expect(r.isError).toBe(true);
   });
 
+  it("P24 image-only pdf reports no text layer honestly", async () => {
+    const info = await callRaw("fs_pdf_info", { workspace: "test", path: "scan.pdf" });
+    expect(info.isError).toBe(false);
+    expect(info.parsed!.hasTextLayer).toBe(false);
+    const text = await callRaw("fs_pdf_text", { workspace: "test", path: "scan.pdf" });
+    expect(text.parsed!.textChars).toBe(0);
+  });
+
+  it("armor marker inside pdf text layer refused", async () => {
+    const r = await callRaw("fs_pdf_text", { workspace: "test", path: "armor.pdf" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).not.toContain("MC4CAQ");
+  });
+
+  it("endPage before startPage is INVALID_ARGUMENT", async () => {
+    const r = await callRaw("fs_pdf_text", { workspace: "test", path: "three.pdf", startPage: 3, endPage: 1 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^INVALID_ARGUMENT/);
+  });
+
   it("pdf tools refuse non-pdf and denied paths", async () => {
     const r = await callRaw("fs_pdf_info", { workspace: "test", path: "canary.png" });
     expect(r.isError).toBe(true);
@@ -544,6 +679,13 @@ describe("fs_office_text", () => {
     const all = JSON.stringify(r.parsed!.sections);
     expect(all).toContain("XLSX_CANARY_CELL");
     expect(all).toContain("42");
+  });
+
+  it("armor marker inside docx section refused", async () => {
+    const r = await callRaw("fs_office_text", { workspace: "test", path: "armor.docx" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).not.toContain("MC4CAQ");
   });
 
   it("legacy OLE refused explicitly", async () => {

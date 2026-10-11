@@ -40,27 +40,45 @@ export interface ImageMeta {
  * libvips) never executes scripts, but its image/use href resolution is a
  * local-file exfiltration vector: `<image href="/etc/secret.png">` would be
  * rasterized INTO the output pixels. Fail closed on anything that is not a
- * pure same-document reference (#id) or inline data: payload. Attribute
- * values are matched literally, so entity-encoded smuggling (`h&#116;tp:`)
- * also fails the allowlist rather than decoding into a fetch.
+ * pure same-document reference (#id) or an inline RASTER data: payload —
+ * `data:image/svg+xml` is refused because a nested SVG is a second, unscanned
+ * document that can itself carry file:// hrefs. CSS escapes are decoded
+ * before scanning so `@impo\72t` cannot launder `@import`. Attribute values
+ * are matched literally, so entity-encoded smuggling (`h&#116;tp:`) also
+ * fails the allowlist rather than decoding into a fetch.
  */
-export function svgExternalRefReason(svg: string): string | null {
+const SAFE_DATA_URI = /^data:image\/(png|jpe?g|gif|webp|avif);base64,/i;
+
+function safeInlineRef(v: string): boolean {
+  return v.startsWith("#") || SAFE_DATA_URI.test(v);
+}
+
+function decodeCssEscapes(s: string): string {
+  return s.replace(/\\([0-9a-fA-F]{1,6})[ \t]?/g, (_m, h: string) => {
+    const n = parseInt(h, 16);
+    return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+  });
+}
+
+export function svgExternalRefReason(svgRaw: string): string | null {
+  const svg = decodeCssEscapes(svgRaw);
   if (/<\s*script[\s/>]/i.test(svg)) return "script-element";
   if (/<\s*foreignObject[\s/>]/i.test(svg)) return "foreignObject-element";
   if (/<!ENTITY/i.test(svg)) return "entity-declaration";
   if (/<!DOCTYPE[^>]*\[/is.test(svg)) return "doctype-internal-subset";
   if (/<\?xml-stylesheet/i.test(svg)) return "xml-stylesheet-pi";
-  if (/@import/i.test(svg)) return "css-import";
+  if (/@(import|charset|namespace)\b/i.test(svg)) return "css-at-rule";
 
   for (const m of svg.matchAll(/\b(?:xlink:)?href\s*=\s*["']([^"']*)["']/gi)) {
     const v = m[1]!.trim();
-    if (v.startsWith("#") || /^data:/i.test(v)) continue;
+    if (safeInlineRef(v)) continue;
     return `external-href:${v.slice(0, 32)}`;
   }
-  for (const m of svg.matchAll(/url\(\s*['"]?([^'")\s]+)['"]?\s*\)/gi)) {
-    const v = m[1]!.trim();
-    if (v.startsWith("#") || /^data:/i.test(v)) continue;
-    return `external-url:${v.slice(0, 32)}`;
+  // Quoted whitespace inside url() is trimmed by CSS — the capture is
+  // trimmed here before the allowlist, and an empty/unparseable arg fails.
+  for (const m of svg.matchAll(/url\(\s*['"]?([^'")]+?)['"]?\s*\)/gi)) {
+    const v = (m[1] ?? "").trim();
+    if (v === "" || !safeInlineRef(v)) return `external-url:${v.slice(0, 32) || "empty"}`;
   }
   return null;
 }
@@ -69,7 +87,7 @@ export interface PreparedImage {
   meta: ImageMeta;
   /** Original file bytes when no transform is needed. */
   bytes: Buffer;
-  transform?: { kind: string; detail: string };
+  transform?: { kind: string; sourceSha256: string; returnedSha256: string; detail: string };
 }
 
 /** Decode-agnostic per-file pipeline shared by fs_image, fs_archive_entry
@@ -81,37 +99,11 @@ export class ImageOps {
   constructor(
     private readonly index: WorkspaceIndex,
     private readonly policy: DenyPolicy,
-    limits: Limits
+    limits: Limits,
+    sem?: Semaphore
   ) {
     this.m = mediaLimits(limits);
-    this.sem = new Semaphore(this.m.mediaConcurrency);
-  }
-
-  /** Triage metadata without pixel decode (headers only). */
-  async inspect(workspace: string, inputPath: string) {
-    const r = await this.index.resolve(workspace, inputPath);
-    const buf = await readCapped(r.canonical, r.rel, this.m.maxMediaFileBytes);
-    return { r, buf, meta: this.inspectBuffer(buf, r.rel) };
-  }
-
-  inspectBuffer(buf: Buffer, rel: string): { kind: MediaKind; image?: ImageMeta } {
-    const kind = detectKind(buf.subarray(0, Math.min(buf.length, 8192)));
-    if (!NATIVE_IMAGE_KINDS.has(kind) && kind !== "bmp" && kind !== "tiff" && kind !== "svg") {
-      return { kind };
-    }
-    try {
-      const s = sniffImage(kind === "svg" ? buf.subarray(0, Math.min(buf.length, 8192)) : buf);
-      const meta: ImageMeta = {
-        kind,
-        mime: kind === "svg" ? "image/svg+xml" : (RASTER_MIMES[s.kind] ?? "application/octet-stream"),
-        width: s.width,
-        height: s.height,
-        sizeBytes: buf.length,
-      };
-      return { kind, image: meta };
-    } catch {
-      return { kind };
-    }
+    this.sem = sem ?? new Semaphore(this.m.mediaConcurrency);
   }
 
   /**
@@ -141,9 +133,11 @@ export class ImageOps {
       );
     }
 
-    return this.sem.run(() =>
-      withDeadline(
-        (async () => {
+    // Deadline races the semaphore-wrapped work: the slot stays held until
+    // the native decode actually settles, so timed-out zombies still count
+    // against the concurrency budget.
+    return withDeadline(
+      this.sem.run(async () => {
           // Decode metadata once: gives the true frame count for animated
           // formats and double-checks the header sniff against the decoder.
           const meta = await sharp(buf, { limitInputPixels: this.m.maxImagePixels }).metadata();
@@ -165,7 +159,8 @@ export class ImageOps {
             animated,
           };
 
-          const servingOriginal = frame === 0 && !opts.fitMaxDim && NATIVE_IMAGE_KINDS.has(sniffed.kind);
+          const servingOriginal =
+            frame === 0 && !opts.fitMaxDim && !opts.format && NATIVE_IMAGE_KINDS.has(sniffed.kind);
           if (servingOriginal && buf.length <= this.m.maxImageOutputBytes) {
             return { meta: im, bytes: buf };
           }
@@ -214,12 +209,16 @@ export class ImageOps {
           return {
             meta: im,
             bytes: out,
-            transform: { kind: "re-encode", detail: reasons.join("; ") || `re-encoded as ${fmt}` },
+            transform: {
+              kind: "re-encode",
+              sourceSha256: sha256Hex(buf),
+              returnedSha256: sha256Hex(out),
+              detail: reasons.join("; ") || `re-encoded as ${fmt}`,
+            },
           };
-        })(),
-        this.m.mediaTimeoutMs,
-        "image decode"
-      )
+      }),
+      this.m.mediaTimeoutMs,
+      "image decode"
     );
   }
 
@@ -240,9 +239,8 @@ export class ImageOps {
       );
     }
     const dims = sniffImage(buf);
-    return this.sem.run(() =>
-      withDeadline(
-        (async () => {
+    return withDeadline(
+      this.sem.run(async () => {
           let img = sharp(buf, { density: 150, limitInputPixels: this.m.maxImagePixels });
           if (opts.fitMaxDim) img = img.resize(opts.fitMaxDim, opts.fitMaxDim, { fit: "inside", withoutEnlargement: true });
           const out = await img.png().toBuffer();
@@ -259,12 +257,16 @@ export class ImageOps {
               sizeBytes: buf.length,
             },
             bytes: out,
-            transform: { kind: "svg-rasterize", detail: "rasterized svg→png at 150dpi after external-reference scan" },
+            transform: {
+              kind: "svg-rasterize",
+              sourceSha256: sha256Hex(buf),
+              returnedSha256: sha256Hex(out),
+              detail: "rasterized svg→png at 150dpi after external-reference scan",
+            },
           };
-        })(),
-        this.m.mediaTimeoutMs,
-        "svg rasterize"
-      )
+      }),
+      this.m.mediaTimeoutMs,
+      "svg rasterize"
     );
   }
 

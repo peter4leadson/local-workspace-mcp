@@ -13,6 +13,7 @@ import {
   withDeadline,
 } from "./media.js";
 import type { Limits } from "./config.js";
+import { hasPrivateKeyMaterial } from "./git.js";
 
 /**
  * PDF inspection through PDFium (Chromium's PDF engine) compiled to WASM.
@@ -37,10 +38,11 @@ export class PdfOps {
   constructor(
     private readonly index: WorkspaceIndex,
     private readonly policy: DenyPolicy,
-    limits: Limits
+    limits: Limits,
+    sem?: Semaphore
   ) {
     this.m = mediaLimits(limits);
-    this.sem = new Semaphore(this.m.mediaConcurrency);
+    this.sem = sem ?? new Semaphore(this.m.mediaConcurrency);
   }
 
   private async load(workspace: string, inputPath: string): Promise<{ rel: string; sha: string; doc: PDFiumDocument }> {
@@ -56,7 +58,7 @@ export class PdfOps {
     const lib = await getLib();
     let doc: PDFiumDocument;
     try {
-      doc = await this.sem.run(() => withDeadline(lib.loadDocument(new Uint8Array(buf)), this.m.mediaTimeoutMs, "pdf load"));
+      doc = await withDeadline(this.sem.run(() => lib.loadDocument(new Uint8Array(buf))), this.m.mediaTimeoutMs, "pdf load");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/password|encrypt/i.test(msg)) {
@@ -88,6 +90,7 @@ export class PdfOps {
         sha256: sha,
         pageCount,
         hasTextLayer: sampledText > 0,
+        textProbePages: probe,
         note: sampledText === 0 ? "no extractable text layer (scanned/image-only or restricted)" : undefined,
       };
     } finally {
@@ -126,8 +129,8 @@ export class PdfOps {
           2,
           Math.sqrt(this.m.pdfMaxRenderPixels / Math.max(1, size.originalWidth * size.originalHeight))
         );
-        const res = await this.sem.run(() =>
-          withDeadline(
+        const res = await withDeadline(
+          this.sem.run(() =>
             page.render({
               scale,
               colorSpace: "BGRA",
@@ -139,10 +142,10 @@ export class PdfOps {
                     .png()
                     .toBuffer()
                 ),
-            }),
-            this.m.mediaTimeoutMs,
-            `pdf page ${n} render`
-          )
+            })
+          ),
+          this.m.mediaTimeoutMs,
+          `pdf page ${n} render`
         );
         if (res.data.length > this.m.maxImageOutputBytes) {
           throw new ToolError(
@@ -174,6 +177,9 @@ export class PdfOps {
       if (opts.endPage !== undefined && opts.endPage > pageCount) {
         throw new ToolError("INVALID_ARGUMENT", `endPage ${opts.endPage} out of range: document has ${pageCount} pages`);
       }
+      if (opts.endPage !== undefined && opts.endPage < start) {
+        throw new ToolError("INVALID_ARGUMENT", `endPage ${opts.endPage} precedes startPage ${start}`);
+      }
       const end = Math.min(opts.endPage ?? start + this.m.pdfMaxPagesText - 1, start + this.m.pdfMaxPagesText - 1, pageCount);
       const CHAR_CAP = 256_000;
       const parts: { page: number; text: string }[] = [];
@@ -185,6 +191,9 @@ export class PdfOps {
           t = doc.getPage(n - 1).getText();
         } catch {
           t = "";
+        }
+        if (hasPrivateKeyMaterial(t)) {
+          throw new ToolError("ACCESS_DENIED", `page ${n} text contains private-key material (content-class refusal)`);
         }
         if (chars + t.length > CHAR_CAP) {
           const room = CHAR_CAP - chars;

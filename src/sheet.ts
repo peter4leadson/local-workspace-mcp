@@ -4,7 +4,7 @@ import sharp from "sharp";
 import { minimatch } from "minimatch";
 import { ToolError, type WorkspaceIndex } from "./paths.js";
 import type { DenyPolicy } from "./policy.js";
-import { mediaLimits, readCapped, sha256Hex, withDeadline } from "./media.js";
+import { mediaLimits, readCapped, sha256Hex, withDeadline, Semaphore } from "./media.js";
 import { ImageOps } from "./imageOps.js";
 import type { Limits } from "./config.js";
 
@@ -45,10 +45,11 @@ export class ContactSheet {
   constructor(
     private readonly index: WorkspaceIndex,
     private readonly policy: DenyPolicy,
-    limits: Limits
+    limits: Limits,
+    sem?: Semaphore
   ) {
     this.m = mediaLimits(limits);
-    this.images = new ImageOps(index, policy, limits);
+    this.images = new ImageOps(index, policy, limits, sem);
   }
 
   async render(workspace: string, opts: {

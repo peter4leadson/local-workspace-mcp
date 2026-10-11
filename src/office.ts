@@ -8,7 +8,8 @@ import {
   sha256Hex,
   withDeadline,
 } from "./media.js";
-import { openZipBuffer, safeEntryName, type OpenArchive } from "./zipOps.js";
+import { openZipBuffer, type OpenArchive } from "./zipOps.js";
+import { hasPrivateKeyMaterial } from "./git.js";
 import type { Limits } from "./config.js";
 
 /**
@@ -95,7 +96,10 @@ export class OfficeOps {
     try {
       const buf = await withDeadline(arc.readEntry(info, ENTRY_XML_CAP), this.m.mediaTimeoutMs, `read ${name}`);
       return buf.toString("utf8");
-    } catch {
+    } catch (err) {
+      // Timeouts must propagate — a silently omitted section looks like a
+      // clean read; every other failure degrades that section to null.
+      if (err instanceof ToolError && err.code === "TIMEOUT") throw err;
       return null;
     }
   }
@@ -117,6 +121,9 @@ export class OfficeOps {
 
       const push = (name: string, text: string) => {
         if (truncated) return;
+        if (hasPrivateKeyMaterial(text)) {
+          throw new ToolError("ACCESS_DENIED", `extracted section contains private-key material (content-class refusal): ${name}`);
+        }
         if (chars + text.length > cap) {
           const room = cap - chars;
           if (room > 64) {
@@ -133,6 +140,7 @@ export class OfficeOps {
       if (fmt === "docx") {
         const parts = names.filter((n) => /^word\/(document|footnotes|endnotes|comments)\.xml$/.test(n));
         for (const n of parts) {
+          if (truncated) break;
           const xml = await this.readXml(arc, n);
           if (!xml) continue;
           // Paragraph breaks at </w:p>; table cells joined inline.
@@ -146,6 +154,7 @@ export class OfficeOps {
           .sort((a, b) => parseInt(slideRe.exec(a)![1]!, 10) - parseInt(slideRe.exec(b)![1]!, 10))
           .slice(0, 200);
         for (const n of slides) {
+          if (truncated) break;
           const xml = await this.readXml(arc, n);
           if (!xml) continue;
           const num = slideRe.exec(n)![1]!;
@@ -167,6 +176,7 @@ export class OfficeOps {
           .sort((a, b) => parseInt(sheetRe.exec(a)![1]!, 10) - parseInt(sheetRe.exec(b)![1]!, 10))
           .slice(0, 64);
         for (const n of sheets) {
+          if (truncated) break;
           const xml = await this.readXml(arc, n);
           if (!xml) continue;
           const lines: string[] = [];
@@ -215,4 +225,3 @@ export class OfficeOps {
   }
 }
 
-export { safeEntryName };

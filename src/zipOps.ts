@@ -90,18 +90,6 @@ export async function openZipBuffer(
   );
 }
 
-export async function openZipPath(
-  canonical: string,
-  policy: DenyPolicy,
-  limits: MediaLimitsT
-): Promise<OpenArchive> {
-  return openZipCommon(
-    (cb) => yauzl.open(canonical, { lazyEntries: true, decodeStrings: false, validateEntrySizes: true }, cb),
-    policy,
-    limits
-  );
-}
-
 type MediaLimitsT = ReturnType<typeof mediaLimits>;
 
 async function openZipCommon(
@@ -129,7 +117,7 @@ async function openZipCommon(
       const utf8 = (e.generalPurposeBitFlag & 0x800) !== 0;
       const rawName = Buffer.isBuffer(e.fileName) ? e.fileName.toString(utf8 ? "utf8" : "latin1") : String(e.fileName);
       const { name, unsafe } = safeEntryName(rawName);
-      const type = entryType(e, name);
+      const type = entryType(e, rawName);
       const info: ArchiveEntryInfo = {
         name,
         type,
@@ -141,11 +129,18 @@ async function openZipCommon(
         ...(unsafe ? { unsafe } : {}),
       };
       if (!unsafe && type === "file") {
-        const denied = policy.check(name);
+        // Trimmed spelling is checked too — ".env " must not launder past
+        // the deny list just because the byte-exact name differs.
+        const denied = policy.check(name) ?? policy.check(name.trim());
         if (denied) info.denied = denied;
       }
+      // Duplicate member names desync validation vs decompression — the
+      // second spelling wins nothing: mark it unsafe and keep the first.
+      if (!unsafe && !info.denied && internal.byName.has(name)) {
+        info.unsafe = "duplicate-name";
+      }
       entries.push(info);
-      if (!unsafe) internal.byName.set(name, e);
+      if (!unsafe && !info.unsafe && !internal.byName.has(name)) internal.byName.set(name, e);
       if (entries.length >= limits.archiveMaxMembers) {
         truncated = true;
         zf.close();
@@ -271,7 +266,7 @@ export class ZipOps {
     if (safe.unsafe) {
       throw new ToolError("INVALID_ARGUMENT", `unsafe member name (${safe.unsafe}): ${JSON.stringify(memberName.slice(0, 80))}`);
     }
-    const denied = this.policy.check(safe.name);
+    const denied = this.policy.check(safe.name) ?? this.policy.check(safe.name.trim());
     if (denied) throw new ToolError("ACCESS_DENIED", `archive member denied by policy (${denied}): ${safe.name}`);
 
     const arc = await withDeadline(openZipBuffer(buf, this.policy, this.m), this.m.mediaTimeoutMs, "zip enumeration");
