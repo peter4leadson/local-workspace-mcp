@@ -50,6 +50,15 @@ async function serve(configPath: string) {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Announce the tool catalog once after the first initialize so clients and
+  // intermediaries that cache tools/list (e.g. tunnel control planes) know to
+  // re-discover when this process version serves a different surface.
+  let announced = false;
+  server.server.oninitialized = () => {
+    if (announced) return;
+    announced = true;
+    server.sendToolListChanged();
+  };
   // Operational logs go to stderr only — stdout is the protocol channel.
   console.error(`${SERVER_NAME} ${SERVER_VERSION} serving stdio (${index.list().length} workspace(s), config ${cfg.configPath})`);
 }
