@@ -87,7 +87,7 @@ async function main() {
   if (cmd === "init-config") {
     const p = defaultConfigPath();
     if (fs.existsSync(p)) {
-      console.error(`config already exists at ${p}`);
+      console.error(`config already exists at ${p} — refusing to overwrite; edit it or delete it first`);
       process.exit(1);
     }
     fs.mkdirSync(path.dirname(p), { recursive: true });
