@@ -253,9 +253,11 @@ const PRIVATE_KEY_MARKER =
 
 /** True when a buffer's early bytes carry private-key material — the
  *  name-independent deny layer (a key file renamed `notes.txt` must not
- *  become readable just because its name evades the policy). */
+ *  become readable just because its name evades the policy). A second pass
+ *  on whitespace-collapsed text catches armor markers split across line or
+ *  paragraph boundaries (`PRIVATE\nKEY` → `PRIVATE KEY`). */
 export function hasPrivateKeyMaterial(text: string): boolean {
-  return PRIVATE_KEY_MARKER.test(text);
+  return PRIVATE_KEY_MARKER.test(text) || PRIVATE_KEY_MARKER.test(text.replace(/\s+/g, " "));
 }
 
 /** Redact any lines carrying private-key markers — defense in depth for
@@ -582,5 +584,20 @@ export class GitOps {
     const dirty = await git(root, ["status", "--porcelain=v2", "-z", "--end-of-options"], this.opts(65_536));
     const hasChanges = dirty.exitCode === 0 && dirty.stdout.replace(/# branch\.[^\0]*\0/g, "").trim().length > 0;
     return { head: head.stdout.trim(), dirty: hasChanges };
+  }
+
+  private readonly headCache = new Map<string, { at: number; p: Promise<{ head: string; dirty: boolean } | null> }>();
+
+  /** headSha with a 2s per-root cache: provenance reads spawn up to 3 git
+   *  processes outside the media semaphore, so a contact-sheet/fs_image
+   *  burst must not stampede `git status` on every call. 2s is fresh enough
+   *  for provenance truth while collapsing a burst into one probe. */
+  headShaCached(root: string): Promise<{ head: string; dirty: boolean } | null> {
+    const hit = this.headCache.get(root);
+    if (hit && Date.now() - hit.at < 2_000) return hit.p;
+    const p = this.headSha(root).catch(() => null);
+    if (this.headCache.size > 64) this.headCache.clear();
+    this.headCache.set(root, { at: Date.now(), p });
+    return p;
   }
 }

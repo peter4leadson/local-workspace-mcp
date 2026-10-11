@@ -302,7 +302,7 @@ export class ZipOps {
       if (kind === "zip" || kind === "ooxml") {
         throw new ToolError("UNSUPPORTED_FORMAT", `nested archives are not traversed: ${info.name}`);
       }
-      if (data.length > 8_192 && kind === "text") {
+      if (kind === "text") {
         const head = data.subarray(0, Math.min(data.length, 262_144)).toString("utf8");
         if (hasPrivateKeyMaterial(head)) {
           throw new ToolError("ACCESS_DENIED", `member contains private-key material: ${info.name}`);

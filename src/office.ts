@@ -202,6 +202,16 @@ export class OfficeOps {
         }
       }
 
+      // A marker split across a section boundary evades per-section checks;
+      // check both a newline join (whitespace-collapse rejoins token splits)
+      // and a zero-separator join (rejoins mid-word splits).
+      if (sections.length > 1) {
+        const texts = sections.map((s) => s.text);
+        if (hasPrivateKeyMaterial(texts.join("\n")) || hasPrivateKeyMaterial(texts.join(""))) {
+          throw new ToolError("ACCESS_DENIED", "extracted text contains private-key material (content-class refusal)");
+        }
+      }
+
       return {
         workspace,
         path: r.rel,

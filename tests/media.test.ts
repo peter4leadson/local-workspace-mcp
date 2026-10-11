@@ -163,6 +163,35 @@ beforeAll(async () => {
     path.join(w, "cssescape.svg"),
     `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>@impo\\72t "x.css";</style></defs><rect width="40" height="20"/></svg>`
   );
+  // review-2c: `\<non-hex>` is a literal char escape — `@\import` → `@import`
+  fs.writeFileSync(
+    path.join(w, "cssnonhex.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>@\\import "x.css";</style></defs><rect width="40" height="20"/></svg>`
+  );
+  // review-2d: `u\rl(` decodes to `url(` — escape inside the function name
+  fs.writeFileSync(
+    path.join(w, "cssescurl.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>rect{fill:u\\rl(file:///etc/passwd)}</style></defs><rect width="40" height="20"/></svg>`
+  );
+  // review-2e: XML numeric refs inside <style> decode before CSS sees them
+  fs.writeFileSync(
+    path.join(w, "entityurl.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>rect{fill:url&#40;file:///etc/passwd&#41;}</style></defs><rect width="40" height="20"/></svg>`
+  );
+  fs.writeFileSync(
+    path.join(w, "entityimport.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>@impo&#114;t "x.css";</style></defs><rect width="40" height="20"/></svg>`
+  );
+  // review-2f: xml:base re-anchors every same-document ref off-root
+  fs.writeFileSync(
+    path.join(w, "xmlbase.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" xml:base="file:///etc/" width="40" height="20"><defs><image id="x" href="#none"/></defs><use href="#x"/></svg>`
+  );
+  // review-2g: external DTD declaration
+  fs.writeFileSync(
+    path.join(w, "docext.svg"),
+    `<!DOCTYPE svg SYSTEM "file:///etc/passwd"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"/></svg>`
+  );
   fs.writeFileSync(path.join(w, "proper.jpg"), await sharp(canary).jpeg().toBuffer());
   fs.symlinkSync("canary.png", path.join(w, "imglink.png"));
   fs.writeFileSync(
@@ -195,6 +224,15 @@ beforeAll(async () => {
       { name: ".env ", data: "SECRET=trailing-space\n" },
       { name: "keys/priv.pem", data: "-----BEGIN PRIVATE KEY-----\nMC4CAQ\n" },
       { name: "notes/report.txt", data: "benign name but -----BEGIN PRIVATE KEY-----\nMC4CAQ\n" },
+      // review-N2: PuTTY-format key under a benign name, under 8KiB — the
+      // size-gated text scan used to skip it
+      { name: "keys/backup.txt", data: "PuTTY-User-Key-File-3: ssh-ed25519\nComment: test\nPublic-Lines: 1\nAAAA\nPrivate-Lines: 1\nBBBB\n" },
+      // review-N8: armor marker split across a line boundary inside one member
+      { name: "notes/split.txt", data: "-----BEGIN PRIVATE\nKEY-----\nMC4CAQ\n" },
+      // review-R8: bare directory member — placeholder donlyX patched to
+      // donly/ after build (yazl refuses trailing-slash names)
+      { name: "donlyX", data: "x" },
+      { name: "donly/file.txt", data: "inside dir\n" },
       { name: "zeros.bin", data: Buffer.alloc(2_000_000, 0x30) },
       { name: "nested.zip", data: inner },
       // symlink entry: unix mode S_IFLNK|0777
@@ -203,7 +241,7 @@ beforeAll(async () => {
     "ZZZZZZ",
     "../../"
   );
-  const patched = patchZipName(archive, "QQQQQQ", "/evil/");
+  const patched = patchZipName(patchZipName(archive, "QQQQQQ", "/evil/"), "donlyX", "donly/");
   fs.writeFileSync(path.join(w, "archive.zip"), patched);
 
   // duplicate-name desync fixture: two members, same name, different bytes
@@ -223,6 +261,8 @@ beforeAll(async () => {
     { name: "word/document.xml", data: `<?xml version="1.0"?><w:document xmlns:w="w"><w:body><w:p><w:r><w:t>-----BEGIN PRIVATE KEY-----\nMC4CAQ</w:t></w:r></w:p></w:body></w:document>` },
   ]));
   fs.writeFileSync(path.join(w, "armor.pdf"), makePdf(["-----BEGIN PRIVATE KEY----- MC4CAQ"]));
+  // review-N8: armor marker split across a page boundary
+  fs.writeFileSync(path.join(w, "splitarmor.pdf"), makePdf(["-----BEGIN PRIVATE", "KEY----- MC4CAQ"]));
   // image-only page: no text operators at all
   fs.writeFileSync(path.join(w, "scan.pdf"), makePdf([""]));
   fs.writeFileSync(path.join(w, "corrupt.zip"), Buffer.concat([archive.subarray(0, 60), Buffer.from("TRUNCATED")]));
@@ -363,6 +403,47 @@ describe("fs_image", () => {
     const r = await callRaw("fs_image", { workspace: "test", path: "cssescape.svg" });
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2c: non-hex css escape @\\import refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "cssnonhex.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2d: escaped u\\rl() refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "cssescurl.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2e: xml entity-encoded url() refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "entityurl.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    const r2 = await callRaw("fs_image", { workspace: "test", path: "entityimport.svg" });
+    expect(r2.isError).toBe(true);
+    expect(r2.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2f: xml:base refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "xmlbase.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).toContain("xml-base");
+  });
+
+  it("REG review-2g: external doctype refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "docext.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("clean svg still rasterizes (no false positive from decode passes)", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "clean.svg" });
+    expect(r.isError).toBe(false);
+    expect(r.images.length).toBe(1);
+    expect(r.images[0]!.mimeType).toBe("image/png");
   });
 
   it("P2 jpeg serves natively; P3 in-root symlinked image serves", async () => {
@@ -545,6 +626,29 @@ describe("fs_archive_list / fs_archive_entry", () => {
     expect(r.parsed!.text).not.toContain("SECOND");
   });
 
+  it("REG review-N2: small PuTTY-key member under benign name refused", async () => {
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "keys/backup.txt" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).not.toContain("Public-Lines");
+  });
+
+  it("REG review-N8: armor marker split across lines refused", async () => {
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "notes/split.txt" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-R8: bare directory member classified as directory", async () => {
+    const list = await callRaw("fs_archive_list", { workspace: "test", path: "archive.zip" });
+    // Listing name is normalized ("donly"); classification uses the raw name.
+    const dir = (list.parsed!.entries as { name: string; type: string }[]).find((e) => e.name === "donly");
+    expect(dir?.type).toBe("directory");
+    const r = await callRaw("fs_archive_entry", { workspace: "test", path: "archive.zip", member: "donly/" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^INVALID_ARGUMENT/);
+  });
+
   it("N19 member-count cap truncates listing", async () => {
     const tight = await connectClient(f, { archiveMaxMembers: 5 });
     try {
@@ -636,6 +740,13 @@ describe("fs_pdf_*", () => {
 
   it("armor marker inside pdf text layer refused", async () => {
     const r = await callRaw("fs_pdf_text", { workspace: "test", path: "armor.pdf" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+    expect(r.text).not.toContain("MC4CAQ");
+  });
+
+  it("REG review-N8: armor marker split across pages refused", async () => {
+    const r = await callRaw("fs_pdf_text", { workspace: "test", path: "splitarmor.pdf" });
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/^ACCESS_DENIED/);
     expect(r.text).not.toContain("MC4CAQ");

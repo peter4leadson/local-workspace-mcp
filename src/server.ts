@@ -573,7 +573,7 @@ export function createServer(deps: Deps): McpServer {
           format: a.format,
         });
         const ws = index.get(a.workspace);
-        const prov = await gitOps.headSha(ws.realRoot);
+        const prov = await gitOps.headShaCached(ws.realRoot);
         const payload: Record<string, unknown> = {
           workspace: a.workspace,
           path: r.rel,
@@ -746,7 +746,7 @@ export function createServer(deps: Deps): McpServer {
       async (a: { workspace: string; path: string; pages?: number[] }) => {
         const res = await pdfOps.renderPages(a.workspace, a.path, a.pages);
         const ws = index.get(a.workspace);
-        const prov = await gitOps.headSha(ws.realRoot);
+        const prov = await gitOps.headShaCached(ws.realRoot);
         return {
           payload: {
             workspace: a.workspace,

@@ -75,22 +75,31 @@ export class PdfOps {
       const pageCount = doc.getPageCount();
       // Probe up to 3 pages for a text layer — image-only (scanned) PDFs
       // must report honestly rather than pretending extraction worked.
+      // getText() is synchronous WASM so a timer cannot preempt it; the
+      // elapsed check between pages bounds the loop and the semaphore slot
+      // counts it against the shared media budget.
       let sampledText = 0;
+      let probed = 0;
       const probe = Math.min(pageCount, 3);
-      for (let i = 0; i < probe; i++) {
-        try {
-          sampledText += doc.getPage(i).getText().length;
-        } catch {
-          /* page-level text failure — count as empty */
+      const deadlineAt = Date.now() + this.m.mediaTimeoutMs;
+      await this.sem.run(async () => {
+        for (let i = 0; i < probe; i++) {
+          if (i > 0 && Date.now() > deadlineAt) break;
+          try {
+            sampledText += doc.getPage(i).getText().length;
+          } catch {
+            /* page-level text failure — count as empty */
+          }
+          probed++;
         }
-      }
+      });
       return {
         workspace,
         path: rel,
         sha256: sha,
         pageCount,
         hasTextLayer: sampledText > 0,
-        textProbePages: probe,
+        textProbePages: probed,
         note: sampledText === 0 ? "no extractable text layer (scanned/image-only or restricted)" : undefined,
       };
     } finally {
@@ -185,24 +194,42 @@ export class PdfOps {
       const parts: { page: number; text: string }[] = [];
       let chars = 0;
       let truncated = false;
-      for (let n = start; n <= end; n++) {
-        let t = "";
-        try {
-          t = doc.getPage(n - 1).getText();
-        } catch {
-          t = "";
+      // Per-page deadline check bounds the synchronous WASM extraction loop;
+      // an over-time range degrades to a resumable truncation.
+      const deadlineAt = Date.now() + this.m.mediaTimeoutMs;
+      await this.sem.run(async () => {
+        for (let n = start; n <= end; n++) {
+          if (n !== start && Date.now() > deadlineAt) {
+            truncated = true;
+            break;
+          }
+          let t = "";
+          try {
+            t = doc.getPage(n - 1).getText();
+          } catch {
+            t = "";
+          }
+          if (hasPrivateKeyMaterial(t)) {
+            throw new ToolError("ACCESS_DENIED", `page ${n} text contains private-key material (content-class refusal)`);
+          }
+          if (chars + t.length > CHAR_CAP) {
+            const room = CHAR_CAP - chars;
+            if (room > 0) parts.push({ page: n, text: t.slice(0, room) });
+            truncated = true;
+            break;
+          }
+          parts.push({ page: n, text: t });
+          chars += t.length;
         }
-        if (hasPrivateKeyMaterial(t)) {
-          throw new ToolError("ACCESS_DENIED", `page ${n} text contains private-key material (content-class refusal)`);
+      });
+      // A marker split across a page boundary evades per-page checks; check
+      // both a newline join (whitespace-collapse rejoins token splits) and a
+      // zero-separator join (rejoins mid-word splits).
+      if (parts.length > 1) {
+        const texts = parts.map((p) => p.text);
+        if (hasPrivateKeyMaterial(texts.join("\n")) || hasPrivateKeyMaterial(texts.join(""))) {
+          throw new ToolError("ACCESS_DENIED", "extracted text contains private-key material (content-class refusal)");
         }
-        if (chars + t.length > CHAR_CAP) {
-          const room = CHAR_CAP - chars;
-          if (room > 0) parts.push({ page: n, text: t.slice(0, room) });
-          truncated = true;
-          break;
-        }
-        parts.push({ page: n, text: t });
-        chars += t.length;
       }
       const lastIncluded = parts.length ? parts[parts.length - 1]!.page : start - 1;
       return {

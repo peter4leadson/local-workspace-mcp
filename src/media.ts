@@ -139,17 +139,19 @@ export function sha256Hex(buf: Buffer): string {
 }
 
 const KEY_ARMOR_BYTES = Buffer.from("PRIVATE KEY", "latin1");
-const KEY_ARMOR_RE = /-{2,}\s*BEGIN\s+[A-Z0-9 \-]*PRIVATE KEY/i;
+const PUTTY_BYTES = Buffer.from("PuTTY-User-Key-File-", "latin1");
+const KEY_ARMOR_RE = /-{2,}\s*BEGIN\s+[A-Z0-9 \-]*PRIVATE KEY(?:\s+BLOCK)?\s*-{0,}|PuTTY-User-Key-File-\d:/i;
 
 /**
  * Content-class refusal on raw bytes: private-key armor is ASCII and survives
  * verbatim inside PNG tEXt chunks, ZIP comments, and renamed files — a name
- * that evades the path policy must not become a content channel.
+ * that evades the path policy must not become a content channel. Covers both
+ * PEM/OpenSSH-style armor and PuTTY .ppk headers.
  */
 export function bufferHasKeyMaterial(buf: Buffer): boolean {
-  // Fast reject on the literal, confirm with the marker grammar so plain
+  // Fast reject on the literals, confirm with the marker grammar so plain
   // mentions like "PRIVATE KEY" prose don't deny a legitimate payload.
-  if (!buf.includes(KEY_ARMOR_BYTES)) return false;
+  if (!buf.includes(KEY_ARMOR_BYTES) && !buf.includes(PUTTY_BYTES)) return false;
   return KEY_ARMOR_RE.test(buf.toString("latin1"));
 }
 

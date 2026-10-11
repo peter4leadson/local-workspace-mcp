@@ -42,10 +42,14 @@ export interface ImageMeta {
  * rasterized INTO the output pixels. Fail closed on anything that is not a
  * pure same-document reference (#id) or an inline RASTER data: payload —
  * `data:image/svg+xml` is refused because a nested SVG is a second, unscanned
- * document that can itself carry file:// hrefs. CSS escapes are decoded
- * before scanning so `@impo\72t` cannot launder `@import`. Attribute values
- * are matched literally, so entity-encoded smuggling (`h&#116;tp:`) also
- * fails the allowlist rather than decoding into a fetch.
+ * document that can itself carry file:// hrefs. The scanner runs on text with
+ * BOTH encoding layers the real parsers would strip — XML character
+ * references (`&#xNN;`, `&lt;` …) first, then the full CSS escape grammar —
+ * so `url&#40;file:///x&#41;`, `u\rl(`, `@\import` and `@impo\72t` all decode
+ * to the forbidden constructs they launder. Values that still do not satisfy
+ * the allowlist after decoding are refused; over-decoding can only reveal,
+ * never hide. `xml:base` is refused outright because RFC 3986 base resolution
+ * would re-anchor every same-document #id off-root.
  */
 const SAFE_DATA_URI = /^data:image\/(png|jpe?g|gif|webp|avif);base64,/i;
 
@@ -53,20 +57,40 @@ function safeInlineRef(v: string): boolean {
   return v.startsWith("#") || SAFE_DATA_URI.test(v);
 }
 
+const NAMED_ENTITIES: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+
+function decodeXmlEntities(s: string): string {
+  return s.replace(/&#(x[0-9a-fA-F]+|[0-9]+);|&(lt|gt|amp|quot|apos);/g, (_m, num?: string, named?: string) => {
+    if (num !== undefined) {
+      const n = num[0]!.toLowerCase() === "x" ? parseInt(num.slice(1), 16) : parseInt(num, 10);
+      return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+    }
+    return NAMED_ENTITIES[named!] ?? _m;
+  });
+}
+
+// CSS escape grammar: \HHHHHH (1-6 hex digits + optional whitespace) yields a
+// codepoint; \ + newline is a line continuation (removed); \ + anything else
+// yields that literal character — so `\i` in `@\import` decodes to `i`.
 function decodeCssEscapes(s: string): string {
-  return s.replace(/\\([0-9a-fA-F]{1,6})[ \t]?/g, (_m, h: string) => {
-    const n = parseInt(h, 16);
-    return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+  return s.replace(/\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\[\n\r\f]|\\([\s\S])/g, (_m, hex?: string, ch?: string) => {
+    if (hex !== undefined) {
+      const n = parseInt(hex, 16);
+      return n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+    }
+    return ch ?? "";
   });
 }
 
 export function svgExternalRefReason(svgRaw: string): string | null {
-  const svg = decodeCssEscapes(svgRaw);
+  const svg = decodeCssEscapes(decodeXmlEntities(svgRaw));
   if (/<\s*script[\s/>]/i.test(svg)) return "script-element";
   if (/<\s*foreignObject[\s/>]/i.test(svg)) return "foreignObject-element";
   if (/<!ENTITY/i.test(svg)) return "entity-declaration";
   if (/<!DOCTYPE[^>]*\[/is.test(svg)) return "doctype-internal-subset";
+  if (/<!DOCTYPE[^>]*(SYSTEM|PUBLIC)/i.test(svg)) return "doctype-external";
   if (/<\?xml-stylesheet/i.test(svg)) return "xml-stylesheet-pi";
+  if (/\bxml:base\s*=/i.test(svg)) return "xml-base-attribute";
   if (/@(import|charset|namespace)\b/i.test(svg)) return "css-at-rule";
 
   for (const m of svg.matchAll(/\b(?:xlink:)?href\s*=\s*["']([^"']*)["']/gi)) {
@@ -76,7 +100,7 @@ export function svgExternalRefReason(svgRaw: string): string | null {
   }
   // Quoted whitespace inside url() is trimmed by CSS — the capture is
   // trimmed here before the allowlist, and an empty/unparseable arg fails.
-  for (const m of svg.matchAll(/url\(\s*['"]?([^'")]+?)['"]?\s*\)/gi)) {
+  for (const m of svg.matchAll(/(?:url|image)\(\s*['"]?([^'")]+?)['"]?\s*\)/gi)) {
     const v = (m[1] ?? "").trim();
     if (v === "" || !safeInlineRef(v)) return `external-url:${v.slice(0, 32) || "empty"}`;
   }
@@ -239,6 +263,12 @@ export class ImageOps {
       );
     }
     const dims = sniffImage(buf);
+    if (dims.width && dims.height && dims.width * dims.height > this.m.maxImagePixels) {
+      throw new ToolError(
+        "RESOURCE_LIMIT",
+        `svg declares ${dims.width}x${dims.height} (${dims.width * dims.height} px), over pixel limit ${this.m.maxImagePixels}: ${rel}`
+      );
+    }
     return withDeadline(
       this.sem.run(async () => {
           let img = sharp(buf, { density: 150, limitInputPixels: this.m.maxImagePixels });

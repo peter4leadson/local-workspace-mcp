@@ -20,7 +20,11 @@ const LABEL_H = 22;
 const PAD = 8;
 
 function escapeXml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  // XML 1.0 forbids character references for control chars — drop them first
+  // so a hostile filename degrades its label instead of producing invalid XML.
+  return s
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+    .replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
 interface SheetItem {
@@ -41,6 +45,7 @@ interface SheetItem {
 export class ContactSheet {
   private readonly m: ReturnType<typeof mediaLimits>;
   private readonly images: ImageOps;
+  private readonly sem: Semaphore;
 
   constructor(
     private readonly index: WorkspaceIndex,
@@ -49,7 +54,8 @@ export class ContactSheet {
     sem?: Semaphore
   ) {
     this.m = mediaLimits(limits);
-    this.images = new ImageOps(index, policy, limits, sem);
+    this.sem = sem ?? new Semaphore(this.m.mediaConcurrency);
+    this.images = new ImageOps(index, policy, limits, this.sem);
   }
 
   async render(workspace: string, opts: {
@@ -172,21 +178,21 @@ export class ContactSheet {
     }).composite(composites);
 
     const { buf: out, mime } = await withDeadline(
-      (async () => {
+      this.sem.run(async () => {
         let b = await canvas.png().toBuffer();
-        if (b.length <= this.m.maxImageOutputBytes) return { buf: b, mime: "image/png" };
+        if (b.length <= this.m.maxImageOutputBytes) return { buf: b, mime: "image/png" as const };
         b = await sharp(
           { create: { width: W, height: H, channels: 3, background: { r: 255, g: 255, b: 255 } } },
         )
           .composite(composites)
           .jpeg({ quality: 82, mozjpeg: true })
           .toBuffer();
-        if (b.length <= this.m.maxImageOutputBytes) return { buf: b, mime: "image/jpeg" };
+        if (b.length <= this.m.maxImageOutputBytes) return { buf: b, mime: "image/jpeg" as const };
         throw new ToolError(
           "RESOURCE_LIMIT",
           `contact sheet output exceeds ${this.m.maxImageOutputBytes} bytes even as jpeg; reduce item count or cell size`
         );
-      })(),
+      }),
       this.m.mediaTimeoutMs,
       "contact sheet encode"
     );

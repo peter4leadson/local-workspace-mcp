@@ -60,7 +60,9 @@ structuredContent: <same metadata object, no image bytes>
 Metadata always carries: `workspace`, `path` (workspace-relative), `sha256`,
 `sizeBytes`, detected `format`, `mimeType`, dimensions, and — when the
 workspace is a git toplevel — `headSha`. Transformed payloads add
-`transform:{kind, sourceSha256, returnedSha256, detail}`.
+`transform:{kind, sourceSha256, returnedSha256, detail}`. Derived previews
+are carved out: `fs_contact_sheet` and `fs_pdf_page` outputs are composites
+by design — they carry per-item/page and source `sha256` values instead.
 
 ## Limits (config `limits.*` additions, all schema-bounded)
 
