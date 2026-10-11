@@ -116,3 +116,19 @@ history of dropping image blocks (returns `{}` or text-serialized base64);
 the tunnel forwards responses verbatim (verified in `tunnel-client` source:
 `payload.JSONResponse = rawResponse`). End-to-end ChatGPT acceptance is
 verified separately and recorded — a server-side PASS is not a host claim.
+
+## Host verification status (2026-10-11, HEAD 3a81d09)
+
+- Stdio protocol smoke: PASS — 23 tools listed, `fs_image` returns a
+  byte-identical native `image` block plus metadata text/structuredContent.
+- Tunnel datapath: PASS — forwarded `initialize` (server 0.2.0, protocol
+  2025-11-25) and `tools/call` execute against the rebuilt child; Codex
+  app-server `local_workspace_fs_stat` returned real data end-to-end.
+- ChatGPT connector catalog: STALE — `codex_apps__local_workspace` retains
+  the 14-tool pre-feature snapshot; the control plane never forwards
+  `tools/list` in this flow and the daemon skips stdio startup probing.
+  Connector re-discovery requires a ChatGPT-side refresh (edit/re-save the
+  "Local Workspace" connector, or a new conversation that re-lists tools).
+- Image-through-connector acceptance: **PENDING_CONNECTOR_REFRESH** — do not
+  claim ChatGPT consumes `fs_image` pixels until the refreshed catalog
+  exposes all 23 tools and a synthetic canary returns visual input.
