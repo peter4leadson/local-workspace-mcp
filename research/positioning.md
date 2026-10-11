@@ -95,3 +95,55 @@ sentence must immediately scope `task_run` honestly:
 - Small tool list still costs context tokens (~14 tool schemas).
 - "Bounded" is only as true as the containment code — which is why the
   adversarial suite and threat model ship in-repo.
+
+---
+
+## Delta — 0.2.0 multimodal round (2026-10-11)
+
+Method: same Dunford chain; inputs now include
+`research/audience-corpus.md` delta and the scoped competitor set below
+(competitive-platform-analysis, pinned ECC v2.2.1 @ 5064474 — adapted to
+infrastructure: "engagement format" → distribution, "portfolio" →
+capability surface).
+
+### Scoped competitor set (tiered)
+
+| Candidate | Stance | Specialization | Reach | Offer overlap | Distinctiveness | Credibility | Craft proximity | Tier | Profile? |
+|---|---|---|---|---|---|---|---|---|---|
+| `@modelcontextprotocol/server-filesystem` | capability-led | generalist fs | reference impl, default | 5 | 2 (no policy; write surface) | 5 | 5 (`read_media_file` now exists) | Direct | ✓ must-profile |
+| `ellmos-filecommander-mcp` | capability-led | broad fs+media+process | growing | 4 | 4 (metadata-first bounded previews, ZIP, OCR) | 3 | 4 | Direct (breadth) | ✓ must-profile |
+| `j0hanz/filesystem-context-mcp-server` | security-led | read-only + deny defaults | small | 3 | 4 (deny-by-default, RE2, --read-only) | 2 | 4 | Direct (posture) | ✓ must-profile |
+| `egyjs/expose-files-mcp` | security-led | read-only default + cmd allowlist | small | 3 | 4 | 2 | 3 | Direct (posture) | ✓ profile |
+| Desktop Commander | capability-led | full-access workspace | large | 2 | 4 (traction, permissive pole) | 5 | 2 | Adjacent (substitute/cautionary) | ✓ cautionary |
+| `lduda79/projects-mcp`, `sesopenko/mcp-filesystem-readonly`, `k-filesystem-mcp`, `aself101/mcp-secure-server` | mixed | minimal read-only / secure-fs cookbook | niche | 1–2 | 2–3 | 1–2 | 2–3 | Adjacent | ✗ landscape only |
+
+White-space (the tension nobody else holds): **policy-bounded inspection
+of compound content** — deny rules and content scans applied *inside*
+archives, PDFs, OOXML, and image metadata, with disclosed transforms.
+Breadth rivals have media without policy; posture rivals have policy
+without media.
+
+### 1→5 re-evaluated for 0.2.0
+
+- Competitive alternatives (for the media job): ZIP-export-and-upload is
+  the real status quo the acceptance test targets; official
+  `read_media_file` (plain base64 pass-through, no bounds/policy);
+  FileCommander previews; host built-in image read.
+- Differentiated capabilities: media/document inspection *inside the same
+  boundary* — member-level deny inside ZIPs, private-key scans inside
+  extracted PDF/OOXML text and image bytes, pixel/page/member/ratio
+  budgets, cumulative deadlines, transforms disclosed with
+  source→returned SHA-256 provenance, WASM PDFium (no shell, no JS),
+  macro/external-rel never executed, per-cell authorization on contact
+  sheets, native `image` blocks *and* full text metadata every call.
+- Differentiated value: "the boundary survives the client" now extends to
+  **the boundary survives the file format** — an archive or document
+  cannot smuggle denied material past the policy because inspection
+  happens inside it, not around it.
+- Positioning sentence (supersedes nothing, extends): "Images, archives,
+  PDFs, and Office docs are inspected inside the same deny policy — the
+  archive can't smuggle what the directory can't."
+- Honest losses added: ChatGPT-class hosts do not render `ImageContent`
+  today (industry-wide, not ours alone) — text metadata is the
+  load-bearing path there; a wider surface is a wider audit surface;
+  native decode carries a documented residual (in-process libvips).

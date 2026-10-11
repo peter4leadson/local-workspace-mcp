@@ -1,5 +1,11 @@
 # Threat model — local-workspace-mcp v1
 
+**Contents:** [Assets](#assets) · [Trust boundaries](#trust-boundaries) ·
+[Mitigations](#mitigations-by-threat-class-owasp-mcp-informed) ·
+[Findings ledger](#adversarial-findings-ledger-2026-10-09-round-all-remediated--regressed) ·
+[Residual risks](#residual-risks-accepted-documented) ·
+[Failure policy](#failure-policy)
+
 Frame: AI hosts (Claude Code/Desktop, ChatGPT via OpenAI Secure MCP Tunnel,
 Codex) call this server over per-process stdio. Repositories under authorized
 roots are **adversarial data**: contents may contain prompt injection and

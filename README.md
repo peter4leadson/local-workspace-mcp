@@ -23,6 +23,15 @@ bounded capability without giving the model a shell.
 Evaluating this for team use? Start at [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)
 and [SECURITY.md](SECURITY.md).
 
+**Contents:** [The problem](#the-problem) · [Quick start](#quick-start) ·
+[Usage](#usage-examples) · [Tool surface](#tool-surface) ·
+[Supported hosts](#supported-hosts) · [Permission model](#permission-model) ·
+[What it will not do](#what-it-will-not-do) ·
+[Security architecture](#security-architecture) ·
+[Configuration](#configuration-reference) · [Troubleshooting](#troubleshooting) ·
+[Compatibility](#compatibility) · [Verifying the build](#verifying-the-build) ·
+[Release status](#release-status)
+
 ## The problem
 
 Hosts' built-in file tools are convenient but live in the client's
@@ -148,13 +157,13 @@ pure reads). `task_run` is the only tool with side effects.
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                    | Status     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                                                                                                                                                                                                                                                                                                                 | verified   |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                                                                                                                                                                                                                                                                                                                              | configured |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                                                                                                                                                                                                                                                                                                                          | supported  |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); tunnel datapath verified end-to-end (initialize + tool calls). The hosted connector retains a cached tool catalog — after upgrading, re-save/reconnect the connector in ChatGPT settings or new tools may not appear. `image` content delivery to the ChatGPT model is unverified pending that refresh — every image tool also returns full text metadata. | partial    |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                                                                                                                                                                                                                                                                                                                              | verified   |
+| Host                    | Mechanism                                                                                                                    | Status     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                 | verified   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                              | configured |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                          | supported  |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); see the tunnel notes and cloud disclosure below this table | partial    |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                              | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while
@@ -187,6 +196,13 @@ For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
 stdio command locally; no inbound network listener opens. (tunnel-client
 can optionally bind a loopback-only health endpoint — see OPERATIONS.)
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+Status is `partial`: the tunnel datapath is verified end-to-end
+(initialize + tool calls), but the hosted connector retains a cached
+tool catalog — after upgrading, re-save/reconnect the connector in
+ChatGPT settings or new tools may not appear. `image` content delivery
+to the ChatGPT model is unverified pending that refresh; every image
+tool also returns full text metadata.
 
 Cloud disclosure: over the ChatGPT tunnel path, tool outputs — including
 image bytes and extracted document text — transit OpenAI's connector
@@ -240,7 +256,10 @@ Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
 `RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`, `UNSUPPORTED_FORMAT`,
 `WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `INTERNAL_ERROR`, plus
 `CONFIG_ERROR` at config load/startup. `task_run` and search timeouts
-return `timedOut:true` in the result. Git-command failures surface as
+return `timedOut:true` in the result; media deadline exhaustion is
+reported as `TIMEOUT:` on the failed item or call, so a multi-item
+result can come back partial rather than failed wholesale.
+Git-command failures surface as
 `INVALID_ARGUMENT` (`git_diff`/`git_log`/`git_show` map non-zero exits,
 including timeout kills) or `INTERNAL_ERROR` (`git_status`); a timeout on
 repo detection reads as `repo:false`, and `git_branches` tolerates a
@@ -336,6 +355,7 @@ the file first if you intend a reset.
 | Task executable missing                      | `doctor` flags `task.<id>.executable`; install it or fix task `env.PATH`                                                         |
 | Search returns nothing                       | `rg` must be on the sanitized PATH; `doctor` checks it                                                                           |
 | `ACCESS_DENIED`/`OUTSIDE_ROOT`/`BINARY_FILE` | policy working as intended; widen only in operator config                                                                        |
+| `TIMEOUT:` on a media call/item              | deadline hit — narrow the request (fewer pages/items, smaller `fitMaxDim`) or raise `limits.mediaTimeoutMs`                      |
 | Unexpected `INTERNAL_ERROR`                  | check the host's MCP stderr log; report per [SECURITY.md](SECURITY.md)                                                           |
 | Tunnel (ChatGPT) down                        | `tunnel-client runtimes status`; recovery in [docs/OPERATIONS.md](docs/OPERATIONS.md)                                            |
 

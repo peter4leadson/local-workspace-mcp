@@ -153,3 +153,87 @@ issues #1869 / PR #1901 / PR #1012; github.com/wonderwhy-er/DesktopCommanderMCP
 invariantlabs.ai MCP posts; trailofbits.com MCP; code.claude.com managed-mcp
 and permissions docs; anthropics/claude-code issues #36168/#32559/#2560;
 glama.ai methodology; modelcontextprotocol.io registry docs.
+
+---
+
+## Delta — 0.2.0 multimodal round (2026-10-11)
+
+Provenance: compiled per the same pinned ECC `market-research` method
+(v2.2.1 @ 5064474) against the 0.2.0 scope — bounded multimodal inspection
+(images, contact sheets, ZIP, PDF, OOXML) inside the existing security
+boundary. Sources listed per-claim.
+
+### Market movement since the 0.1.0 corpus
+
+- **The official reference server now ships media.** `read_media_file`
+  streams any file and returns image/audio as native `image`/`audio`
+  content blocks (embedded `resource` otherwise)
+  [github.com/modelcontextprotocol/servers — filesystem README].
+  The 0.1.0 "no media tool" gap is closed upstream. Still absent there:
+  deny policy, git tools, workspace namespacing, named tasks — the 0.1.0
+  reuse verdict (`CUSTOM_REQUIRED`) stands.
+- **Closest breadth competitor: `ellmos-filecommander-mcp`** (50 tools):
+  metadata-first `fc_preview_file` (1 MiB inline ceiling), images via
+  `image` blocks, PDFs as bounded embedded `resource`, ZIP engine,
+  optional OCR — plus writes, process management, interactive REPLs
+  [github.com/ellmos-ai/ellmos-filecommander-mcp]. The preview contract
+  (metadata-then-explicit-content) mirrors our `fs_inspect` → `fs_image`
+  shape; its write/process surface carries no deny-policy layer and no
+  workspace-id namespacing.
+- **Security-posture neighbors** (the niche is no longer empty):
+  `j0hanz/filesystem-context-mcp-server` (`.env`/`*.pem`/`*id_rsa*` denied
+  by default, `--read-only`, RE2), `egyjs/expose-files-mcp` (read-only
+  default, sensitive-pattern deny, command allowlist), `lduda79/projects-mcp`
+  (read-only + exclusions). None offers git tools, tasks, or document
+  inspection.
+- **Host image-rendering reality** [pvliesdonk.github.io/image-generation-mcp
+  client-compatibility; chatforest.com MCP multimodal patterns]:
+  - Claude Desktop / claude.ai: reliably render `ImageContent` inline —
+    the only major hosts that do.
+  - Claude Code: partial→full depending on version; Cursor/Windsurf:
+    partial; Gemini CLI, Cline/Roo: no.
+  - **ChatGPT dev-mode connectors: do not render `ImageContent`** — the
+    documented pattern there is download links or rich text; this makes
+    our per-tool text+`structuredContent` fallback the load-bearing path
+    for that host, not a nice-to-have.
+  - MCP Inspector: renders.
+- **Mitigation our design already implements** (industry-recommended):
+  always pair `image` blocks with text metadata; use `audience`
+  annotations; document supported content types per host
+  [chatforest.com guide]. Our `audience:["user","assistant"]` + full
+  `structuredContent` on every media tool matches this guidance exactly.
+
+### What the delta means for the audience sections above
+
+- Audience 1 (engineers): the "screenshot/PDF in workspace → model sees it"
+  workflow is now expected of any serious workspace MCP — the official
+  server and FileCommander both ship a form of it. Our differentiation is
+  *bounded, policy-enforced, disclosure-first* inspection (deny rules and
+  armor scans applied inside archives/documents too, transforms disclosed
+  with SHA-256 provenance), not the presence of media tools per se.
+- Audience 2 (security-conscious leads): a media tool widens the emission
+  surface; the corpus's trust question ("what exactly can it read?") now
+  extends to "what can it read inside my zip/pdf/docx?" — answered by
+  member-level denies + byte/ratio/page caps + no macro/external-rel
+  execution, all documented in THREAT-MODEL.
+- Audience 3 (OSS maintainers): WASM PDFium parsing (no shell, no JS exec)
+  and librsvg-mediated SVG rasterization with external-reference refusal
+  are reviewable mechanism claims — keep them mechanism-first, matching
+  the "claims not adjectives" ban above.
+
+### Spot-verification items for the delta
+
+- Whether ChatGPT's *non-dev* connector path treats `ImageContent`
+  differently (our canary is the real test).
+- FileCommander's actual weekly downloads/traction — not probed.
+- `read_media_file` availability vs the version of the reference server
+  users actually have installed (npx latest vs pinned).
+
+### Sources (delta)
+
+github.com/modelcontextprotocol/servers (filesystem README, read_media_file);
+github.com/ellmos-ai/ellmos-filecommander-mcp (README + npm page);
+github.com/j0hanz/filesystem-context-mcp-server; github.com/egyjs/expose-files-mcp;
+github.com/lduda79/projects-mcp; pvliesdonk.github.io/image-generation-mcp
+(client-compatibility matrix); chatforest.com/guides/mcp-multimodal-patterns;
+docs.mcpjam.com/inspector/host-compat.

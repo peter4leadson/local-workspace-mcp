@@ -1,5 +1,11 @@
 # Operations — local-workspace-mcp
 
+**Contents:** [Health & diagnostics](#health--diagnostics) ·
+[Startup](#startup) · [Logs & audit](#logs--audit) ·
+[Media tools](#media-tools-v020) · [Recovery](#recovery-boring-on-purpose) ·
+[Upgrades / rebuilds](#upgrades--rebuilds) ·
+[Tunnel (ChatGPT path)](#openai-secure-mcp-tunnel-chatgpt-path)
+
 ## Health & diagnostics
 
 ```sh
