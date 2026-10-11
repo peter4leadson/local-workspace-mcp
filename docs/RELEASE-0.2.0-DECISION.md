@@ -12,7 +12,7 @@ and deliberately excluded from the npm tarball.
 | Item                 | Value                                                                                                                                     |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | Branch / PR          | `feat/multimodal-file-access` — PR #1                                                                                                     |
-| Release-reviewed SHA | `891ec53` (code; supersedes `5fda776` — two narrow EA-remediation changes: audit-target scrub + init-config message; see §Golden Chassis) |
+| Release-reviewed SHA | `ca500f4` (PR head; src code `891ec53` + test-only tmpdir fix — supersedes `5fda776`; see §Golden Chassis) |
 | package.json version | `0.2.0`                                                                                                                                   |
 | server.json version  | `0.2.0`                                                                                                                                   |
 | MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`                                                                                        |
@@ -33,7 +33,7 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 
 | Gate                                 | Result | Evidence                                                                                                                                                                   |
 | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tests                                | PASS   | `pnpm test` — 276/276 (11 files) at `891ec53`; includes audit-target regression from seat remediation                                                                      |
+| Tests                                | PASS   | `pnpm test` — 276/276 (11 files) at `ca500f4`, CI green on exact SHA; includes audit-target regression from seat remediation                                                                      |
 | Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                                                                                               |
 | Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                                                                                             |
 | Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`                                                                    |
