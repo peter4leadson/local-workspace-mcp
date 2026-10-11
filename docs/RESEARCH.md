@@ -8,8 +8,9 @@ evidence; URLs preserved.
 - MCP TypeScript SDK v1 (maintenance line): `@modelcontextprotocol/sdk@1.32.1`
   — implements spec ≤ 2025-11-25; ~76M weekly downloads.
   https://www.npmjs.com/package/@modelcontextprotocol/sdk
-- MCP TypeScript SDK v2 (current stable, split packages):
-  `@modelcontextprotocol/server@2.3.1` — implements spec 2026-07-28.
+- MCP TypeScript SDK v2 (stable line as of this review's date, split
+  packages): `@modelcontextprotocol/server@2.3.1` — implements spec
+  2026-07-28.
   https://www.npmjs.com/package/@modelcontextprotocol/server
   https://ts.sdk.modelcontextprotocol.io/v2/api/%40modelcontextprotocol/server/
 - **Decision: SDK v1 pinned at 1.32.1.** Rationale: the most-deployed line —

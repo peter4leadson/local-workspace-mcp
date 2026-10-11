@@ -148,13 +148,13 @@ pure reads). `task_run` is the only tool with side effects.
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                                                                                                                                                                                                                                                                                          | Status     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                                                                                                                                                                                                                                                                       | verified   |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                                                                                                                                                                                                                                                                                    | configured |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                                                                                                                                                                                                                                                                                | supported  |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); tool calls verified end-to-end, but the connector retains a cached tool catalog — after upgrading, re-save/reconnect the connector in ChatGPT settings or new tools may not appear. `image` content delivery to the model is a separate host-side checkpoint — every image tool also returns full text metadata. | verified\* |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                                                                                                                                                                                                                                                                                    | verified   |
+| Host                    | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                    | Status     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                                                                                                                                                                                                                                                                                                                 | verified   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                                                                                                                                                                                                                                                                                                                              | configured |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                                                                                                                                                                                                                                                                                                                          | supported  |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); tunnel datapath verified end-to-end (initialize + tool calls). The hosted connector retains a cached tool catalog — after upgrading, re-save/reconnect the connector in ChatGPT settings or new tools may not appear. `image` content delivery to the ChatGPT model is unverified pending that refresh — every image tool also returns full text metadata. | partial\*  |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                                                                                                                                                                                                                                                                                                                              | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while
@@ -197,10 +197,13 @@ workspace served to a cloud connector.
 
 ## Permission model
 
-- **Roots are explicit.** Nothing outside `workspaces[].path` is reachable;
+- **Roots are explicit.** Filesystem tools cannot read anything outside
+  `workspaces[].path`;
   `~`, control characters, Windows drive paths, and `..` traversal are
-  rejected before any syscall, and again after `realpath`. Point roots at
-  the projects you actually work on; never authorize `~/` or a parent
+  rejected before any syscall, and again after `realpath`. (Allowlisted
+  `task_run` commands are the one exception — they run as you outside the
+  root, so allowlist only commands you would run.) Point roots at the
+  projects you actually work on; never authorize `~/` or a parent
   directory that contains things the assistant should not read.
 - **Denied by default,** including: `.env*`/`*.env` spellings (except
   `.env[.*].{example,sample,template}`), `.envrc`, private-key filenames,
@@ -359,7 +362,7 @@ uninstall entirely, also remove the host entry (`claude mcp remove`, the
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                    # 272 vitest cases incl. adversarial + red-team regressions
+pnpm test                    # 275 vitest cases incl. adversarial + red-team regressions
 pnpm typecheck && pnpm build
 workspace-mcp doctor         # deterministic diagnostics
 scripts/inspector-smoke.sh <workspace-id>   # 17-check MCP Inspector battery
@@ -376,9 +379,10 @@ pnpm audit --prod            # dependency audit
 
 ## Release status
 
-Published on npm as `local-workspace-mcp` and listed on the official MCP
-Registry as `io.github.peter4leadson/local-workspace-mcp`; see
-[CHANGELOG.md](CHANGELOG.md) for the current version and release history.
+Version 0.1.0 is published on npm as `local-workspace-mcp` and listed on
+the official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
+**0.2.0 is a release candidate — not yet published**; see
+[CHANGELOG.md](CHANGELOG.md) for the release history.
 A 0.2.0 release decision record is maintained in the repository at
 `docs/RELEASE-0.2.0-DECISION.md` (internal ledger — not shipped in the
 tarball; the frozen 0.1.0 record is `docs/RELEASE-PACKET.md`).

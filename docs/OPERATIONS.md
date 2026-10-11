@@ -79,8 +79,10 @@ The canonical symptom → action table lives in [README.md §Troubleshooting](..
 resolve almost everything: `workspace-mcp doctor` names the first failing
 check, and hosts spawn with a minimal PATH — use the absolute binary path.
 
-No state exists outside config + audit log — deleting both and re-running
-`init-config` is a full reset.
+The server itself keeps no state outside config + audit log — deleting both
+and re-running `init-config` is a full reset of this component. Host
+registrations, the npm-installed package files, and `tunnel-client` runtime
+state live elsewhere and are unaffected.
 
 ## Upgrades / rebuilds
 
@@ -99,13 +101,23 @@ SDK v1 line, spec ≤2025-11-25).
 Breaking tool-catalog changes must bump the minor version — ChatGPT's
 connector retains a frozen `tools/list` snapshot until refreshed. The
 server advertises `notifications/tools/list_changed`, but the hosted
-connector does not re-list on that signal today: **recovery is a
+connector does not re-list on that signal today: **the likely recovery is a
 ChatGPT-side connector re-save/reconnect** (Settings → Connectors → the
-connector → edit/save, or toggle off/on). If the catalog is still stale
-after that, the connector must be deleted and recreated — the local
-server and tunnel are not at fault.
+connector → edit/save, or toggle off/on), which should trigger backend
+re-discovery (`tools/list` over the live tunnel). If the catalog is still
+stale after that, delete and recreate the connector. Diagnosis: forwarded
+`initialize`/`tools/call` succeed against the current child while
+`tools/list` is never forwarded — so the stale snapshot sits in the
+connector's retained catalog, not the local server; verify by re-checking
+the exposed tool count after each step.
 
 ## OpenAI Secure MCP Tunnel (ChatGPT path)
+
+Cold start: install `tunnel-client`
+(`https://github.com/openai/tunnel-client`), create a tunnel profile
+(`tunnel-client runtimes create`, which writes the YAML naming the stdio
+command and `tunnel_id`), then register the connector in ChatGPT pointing
+at that tunnel. The notes below assume `<alias>` names that profile.
 
 - Supervision: `tunnel-client runtimes connect <alias>` (native managed
   runtime — per OpenAI guidance, do not supervise with nohup/disown;

@@ -49,8 +49,10 @@ read-only, workspace-contained, deny-policy-enforced, and byte-capped.
 - Host-compatibility note: `image` blocks are spec-native; MCP Inspector
   and stdio clients render them, but ChatGPT's connector layer may drop
   image blocks — every image tool also returns text + `structuredContent`
-  metadata so no information is silently lost. ChatGPT-side visual delivery
-  is verified separately, not assumed.
+  metadata so no information is silently lost. **ChatGPT status: pending** —
+  its connector retains a stale 14-tool catalog snapshot until a
+  ChatGPT-side connector re-save/reconnect re-lists the tunnel; visual
+  delivery to the ChatGPT model is unverified until then.
 
 ### Security — independent review rounds (see `docs/THREAT-MODEL.md` ledger)
 
