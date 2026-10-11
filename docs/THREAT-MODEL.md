@@ -151,6 +151,20 @@ Remediation-verify pass on `3a81d09` (same reviewer, second round) added:
 | N-9  | INFO | `sendToolListChanged` fires once per process — cosmetic for single-shot stdio; accepted.                                                                                                                                                                                                                   |
 | N-10 | INFO | derived previews (contact sheet, pdf page) carry per-item/source hashes but not the `transform` block — spec clarified.                                                                                                                                                                                    |
 
+Verification residuals on `7e98769` (all LOW/INFO; empirically inert on the
+bundled rasterizer — sharp 0.35.5 ships librsvg 2.63.2 which loads no
+external resources at all, so the scan is pure defense-in-depth in this
+build) closed in the same pass:
+
+| ID  | Sev  | Finding → Fix                                                                                                                                                                                  |
+| --- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V-1 | LOW  | unterminated `url(`/`image(` evaded the scan (CSS auto-closes at end-of-value) → leftover function-token check after the terminated-call scan.                                                 |
+| V-2 | LOW  | `\`+CRLF line continuation diverged from XML's CRLF→LF normalization → input CRLF-normalized before decode.                                                                                    |
+| V-3 | LOW  | SMIL `<set>/<animate>` carry URLs in `to=`/`from=`/`by=`/`values=` → scheme-or-absolute values refused.                                                                                        |
+| V-4 | INFO | bare-string CSS image functions (`image-set`/`src`/`cross-fade`) unscan­ned → added to the ref-function scan.                                                                                  |
+| V-5 | INFO | namespace-prefixed `<x:script>`/`<x:foreignObject>` evaded element checks → prefix-tolerant patterns.                                                                                          |
+| V-6 | LOW  | pre-existing: `fsOps` line-level armor scan can miss markers split across lines beyond the sniff head (`fs_read`/`fs_search_content` path — unaffected by this diff) → tracked as a follow-up. |
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is

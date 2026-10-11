@@ -82,10 +82,14 @@ function decodeCssEscapes(s: string): string {
   });
 }
 
+const CSS_REF_FN = /(?:url|image|image-set|src|cross-fade)\s*\(\s*['"]?([^'")]+?)['"]?\s*\)/gi;
+
 export function svgExternalRefReason(svgRaw: string): string | null {
-  const svg = decodeCssEscapes(decodeXmlEntities(svgRaw));
-  if (/<\s*script[\s/>]/i.test(svg)) return "script-element";
-  if (/<\s*foreignObject[\s/>]/i.test(svg)) return "foreignObject-element";
+  // XML normalizes CRLF→LF in text before parsing; match that or a `\<CR><LF>`
+  // line continuation diverges between this scan and the real tokenizer.
+  const svg = decodeCssEscapes(decodeXmlEntities(svgRaw.replace(/\r\n?/g, "\n")));
+  if (/<\s*(?:[\w.-]+:)?\s*script[\s/>]/i.test(svg)) return "script-element";
+  if (/<\s*(?:[\w.-]+:)?\s*foreignObject[\s/>]/i.test(svg)) return "foreignObject-element";
   if (/<!ENTITY/i.test(svg)) return "entity-declaration";
   if (/<!DOCTYPE[^>]*\[/is.test(svg)) return "doctype-internal-subset";
   if (/<!DOCTYPE[^>]*(SYSTEM|PUBLIC)/i.test(svg)) return "doctype-external";
@@ -98,11 +102,25 @@ export function svgExternalRefReason(svgRaw: string): string | null {
     if (safeInlineRef(v)) continue;
     return `external-href:${v.slice(0, 32)}`;
   }
+  // SMIL mutation vectors carry URLs in value attributes (to=/values=…).
+  for (const m of svg.matchAll(/\b(?:to|from|by|values)\s*=\s*["']([^"']*)["']/gi)) {
+    for (const seg of m[1]!.split(";")) {
+      const v = seg.trim();
+      if (/^[a-z][a-z0-9+.-]*\s*:/i.test(v) || v.startsWith("/") || v.startsWith("\\\\")) {
+        return `external-smil-value:${v.slice(0, 32)}`;
+      }
+    }
+  }
   // Quoted whitespace inside url() is trimmed by CSS — the capture is
   // trimmed here before the allowlist, and an empty/unparseable arg fails.
-  for (const m of svg.matchAll(/(?:url|image)\(\s*['"]?([^'")]+?)['"]?\s*\)/gi)) {
+  for (const m of svg.matchAll(CSS_REF_FN)) {
     const v = (m[1] ?? "").trim();
     if (v === "" || !safeInlineRef(v)) return `external-url:${v.slice(0, 32) || "empty"}`;
+  }
+  // CSS Syntax 3 auto-closes a function token at end-of-value, so a leftover
+  // `url(`/`image(` that the terminated-call scan missed is still live.
+  if (/(?:url|image|image-set|src|cross-fade)\s*\(/i.test(svg.replace(CSS_REF_FN, ""))) {
+    return "unterminated-ref-fn";
   }
   return null;
 }

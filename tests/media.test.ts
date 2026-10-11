@@ -192,6 +192,26 @@ beforeAll(async () => {
     path.join(w, "docext.svg"),
     `<!DOCTYPE svg SYSTEM "file:///etc/passwd"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20"/></svg>`
   );
+  // review-2h: unterminated url() — CSS auto-closes at end-of-value
+  fs.writeFileSync(
+    path.join(w, "untermurl.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="url(file:///etc/passwd"/></svg>`
+  );
+  // review-2i: backslash+CRLF line continuation inside the url() name
+  fs.writeFileSync(
+    path.join(w, "crlfcont.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><style>rect{fill:u\\\r\nrl(file:///etc/passwd)}</style></defs><rect width="40" height="20"/></svg>`
+  );
+  // review-2j: SMIL <set> carries a URL in to=
+  fs.writeFileSync(
+    path.join(w, "smil.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><image id="x" width="40" height="20"><set attributeName="href" to="file:///etc/passwd"/></image></svg>`
+  );
+  // review-2k: namespace-prefixed script element
+  fs.writeFileSync(
+    path.join(w, "nsscript.svg"),
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xhtml" width="40" height="20"><x:script>alert(1)</x:script><rect width="40" height="20"/></svg>`
+  );
   fs.writeFileSync(path.join(w, "proper.jpg"), await sharp(canary).jpeg().toBuffer());
   fs.symlinkSync("canary.png", path.join(w, "imglink.png"));
   fs.writeFileSync(
@@ -435,6 +455,30 @@ describe("fs_image", () => {
 
   it("REG review-2g: external doctype refused", async () => {
     const r = await callRaw("fs_image", { workspace: "test", path: "docext.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2h: unterminated url() refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "untermurl.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2i: CRLF line-continuation inside url() refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "crlfcont.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2j: SMIL to= carrying a URL refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "smil.svg" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/^ACCESS_DENIED/);
+  });
+
+  it("REG review-2k: namespace-prefixed script element refused", async () => {
+    const r = await callRaw("fs_image", { workspace: "test", path: "nsscript.svg" });
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/^ACCESS_DENIED/);
   });
