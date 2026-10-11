@@ -380,7 +380,8 @@ Published on npm as `local-workspace-mcp` and listed on the official MCP
 Registry as `io.github.peter4leadson/local-workspace-mcp`; see
 [CHANGELOG.md](CHANGELOG.md) for the current version and release history.
 A 0.2.0 release decision record is maintained in the repository at
-`docs/RELEASE-PACKET.md` (internal ledger — not shipped in the tarball).
+`docs/RELEASE-0.2.0-DECISION.md` (internal ledger — not shipped in the
+tarball; the frozen 0.1.0 record is `docs/RELEASE-PACKET.md`).
 
 ---
 
