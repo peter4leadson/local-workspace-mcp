@@ -9,15 +9,15 @@ and deliberately excluded from the npm tarball.
 
 ## Candidate identity
 
-| Item                    | Value                                                                 |
-| ----------------------- | --------------------------------------------------------------------- |
-| Branch / PR             | `feat/multimodal-file-access` — PR #1                                 |
-| Release-reviewed SHA    | `070e932` pending final re-verification (see §Security)                |
-| package.json version    | `0.2.0`                                                               |
-| server.json version     | `0.2.0`                                                               |
-| MCP `initialize`        | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`                    |
-| Tool count              | 23 (14 baseline + 9 media/document tools)                             |
-| Prior release           | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`                    |
+| Item                 | Value                                                       |
+| -------------------- | ----------------------------------------------------------- |
+| Branch / PR          | `feat/multimodal-file-access` — PR #1                       |
+| Release-reviewed SHA | `08f326f` (final re-verification in flight — see §Security) |
+| package.json version | `0.2.0`                                                     |
+| server.json version  | `0.2.0`                                                     |
+| MCP `initialize`     | `local-workspace-mcp 0.2.0`, protocol `2025-11-25`          |
+| Tool count           | 23 (14 baseline + 9 media/document tools)                   |
+| Prior release        | `0.1.0` — npm `latest`, SHA `8affca9`, tag `v0.1.0`         |
 
 ## What's new (user-facing)
 
@@ -31,31 +31,32 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 
 ## Gate evidence (exact-SHA bound)
 
-| Gate                                  | Result | Evidence                                                                                                   |
-| ------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------- |
-| Tests                                 | PASS   | `pnpm test` — 272/272 (11 files) at `070e932`; 71 media + 12 red-team + 33 adversarial cases                |
-| Typecheck / build                     | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                               |
-| Dependency audit                      | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                             |
-| Independent review (rounds 1–3)       | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`     |
-| Independent red team (round 4)        | PASS   | `b4cc053` → DO_NOT_SHIP (narrow): RT-1/RT-3 demonstrated defeats + RT-2/RT-4 — all fixed in `070e932`      |
-| Independent re-review of remediation  | PEND.  | clean-context verify on `070e932` running; ledger updates on completion                                     |
-| ATAM architecture review              | PASS   | adequate-for-release verdict, no blocking findings; 5 required mitigations all closed in `070e932`         |
-| Packaged install                      | PASS   | `npm pack` tarball → isolated unprivileged prefix; `workspace-mcp doctor` green; 23 tools via stdio        |
-| Node support                          | PASS   | verified 20.11 / 22.12 / 24.21 (declared `>=20`); `engines` + `os:[darwin,linux]` in package.json           |
-| Native deps                           | PASS   | sharp prebuilds on macOS-arm64 + linux-x64 (container check); pdfium.wasm loads; no install scripts         |
-| Rollback                              | PASS   | `npm i -g local-workspace-mcp@0.1.0` installs, initializes, serves 14 tools                                |
-| Denials                               | PASS   | OUTSIDE_ROOT / ACCESS_DENIED / traversal / symlink / `.env`-class paths refused on the installed package   |
-| Stray writes                          | PASS   | no filesystem writes outside the workspace-scoped call paths observed during install+smoke                  |
+| Gate                                 | Result | Evidence                                                                                                 |
+| ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------- |
+| Tests                                | PASS   | `pnpm test` — 274/274 (11 files) at `08f326f`; 71 media + 14 red-team + 33 adversarial cases             |
+| Typecheck / build                    | PASS   | `tsc --noEmit`, `tsc -p tsconfig.json` clean                                                             |
+| Dependency audit                     | PASS   | `pnpm audit --prod` — no known vulnerabilities                                                           |
+| Independent review (rounds 1–3)      | PASS   | `2f192ff` R-1..R-11 remediated `a1cf413`; `7e98769` N-1..N-8 verified SHIP; V/F-rounds closed `b4cc053`  |
+| Independent red team (round 4)       | PASS   | `b4cc053` → DO_NOT_SHIP (narrow): RT-1/RT-3 demonstrated defeats + RT-2/RT-4 — all fixed in `070e932`    |
+| Independent re-review of remediation | PASS   | clean-context verify on `070e932` → SHIP; residuals closed at `08f326f`                               |
+| Final independent verification       | PEND.  | clean-context verify on `08f326f` in flight                                                              |
+| ATAM architecture review             | PASS   | adequate-for-release verdict, no blocking findings; 5 required mitigations all closed in `070e932`       |
+| Packaged install                     | PASS   | `npm pack` tarball → isolated unprivileged prefix; `workspace-mcp doctor` green; 23 tools via stdio      |
+| Node support                         | PASS   | verified 20.11 / 22.12 / 24.21 (declared `>=20`); `engines` + `os:[darwin,linux]` in package.json        |
+| Native deps                          | PASS   | sharp prebuilds on macOS-arm64 + linux-x64 (container check); pdfium.wasm loads; no install scripts      |
+| Rollback                             | PASS   | `npm i -g local-workspace-mcp@0.1.0` installs, initializes, serves 14 tools                              |
+| Denials                              | PASS   | OUTSIDE_ROOT / ACCESS_DENIED / traversal / symlink / `.env`-class paths refused on the installed package |
+| Stray writes                         | PASS   | no filesystem writes outside the workspace-scoped call paths observed during install+smoke               |
 
 ## Host verification
 
-| Host                    | Status      | Evidence / gap                                                                              |
-| ----------------------- | ----------- | ------------------------------------------------------------------------------------------- |
-| stdio MCP clients       | VERIFIED    | real wire-level smoke: 23 tools, byte-identical `image` block, correct `structuredContent`     |
-| MCP Inspector           | VERIFIED    | 16/17 battery (1 env-specific `task_list` skip); `fs_image` image block rendered              |
-| Claude Code / Codex CLI | SUPPORTED   | stdio wiring per README; image consumption is host-model dependent (spec-native blocks)        |
+| Host                    | Status      | Evidence / gap                                                                                                                      |
+| ----------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| stdio MCP clients       | VERIFIED    | real wire-level smoke: 23 tools, byte-identical `image` block, correct `structuredContent`                                          |
+| MCP Inspector           | VERIFIED    | 16/17 battery (1 env-specific `task_list` skip); `fs_image` image block rendered                                                    |
+| Claude Code / Codex CLI | SUPPORTED   | stdio wiring per README; image consumption is host-model dependent (spec-native blocks)                                             |
 | ChatGPT via tunnel      | PENDING     | datapath verified (`initialize` 0.2.0 + `tools/call` forwarded, HTTP 200); connector catalog retains a 14-tool snapshot — see below |
-| Windows                 | UNSUPPORTED | `os` field + `doctor` platform check; POSIX kill/`/dev/null` semantics have no equivalent     |
+| Windows                 | UNSUPPORTED | `os` field + `doctor` platform check; POSIX kill/`/dev/null` semantics have no equivalent                                           |
 
 ### ChatGPT connector state — PENDING_CONNECTOR_REFRESH
 
@@ -94,9 +95,9 @@ attacker-in-root exclusions, sync-WASM unpreemptibility inside one call.
 
 ## Decision
 
-**HOLD pending two items:** (1) independent re-review verdict on `070e932`
-(running at the time of this record); (2) owner authorization to
-tag/publish. ChatGPT E2E is **not** a ship-blocker — it is a documented
+**HOLD pending two items:** (1) independent final verification verdict on
+`08f326f` (in flight at the time of this record); (2) owner authorization
+to tag/publish. ChatGPT E2E is **not** a ship-blocker — it is a documented
 host-compat limitation, not a server defect.
 
 Rollback plan if 0.2.0 must be withdrawn after publish: `npm deprecate`
