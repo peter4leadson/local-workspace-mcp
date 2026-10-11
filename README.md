@@ -9,8 +9,9 @@ default-deny list for secrets, `.env` files, private keys, and `.git`
 internals. Git read tools and operator-declared named tasks provide
 bounded capability without giving the model a shell.
 
-- **14 tools** over stdio JSON-RPC: bounded filesystem reads/searches,
-  read-only git (status/diff/log/show/branches), and `task_run` for
+- **23 tools** over stdio JSON-RPC: bounded filesystem reads/searches,
+  read-only git (status/diff/log/show/branches), multimodal file inspection
+  (images/archives/PDF/Office), and `task_run` for
   explicitly allowlisted commands.
 - **One transport:** each MCP host spawns `workspace-mcp serve --stdio`.
   No inbound listener, no daemon; the server itself makes no network calls
@@ -116,25 +117,34 @@ gracefully.
 
 ## Tool surface
 
-All 14 tools, annotated `readOnlyHint` where true (hosts can auto-approve
+All 23 tools, annotated `readOnlyHint` where true (hosts can auto-approve
 pure reads). `task_run` is the only tool with side effects.
 
-| Tool                | Scope         | Notes                                                                                                                  |
-| ------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                                                                         |
-| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class                                                                    |
-| `fs_stat`           | one path      | metadata; symlink resolution disclosed                                                                                 |
-| `fs_read`           | one file      | line-range, byte-capped; binary refused                                                                                |
-| `fs_read_many`      | batch         | per-file inline errors, total cap                                                                                      |
-| `fs_search_files`   | filenames     | glob; git file universe where a repo exists (honors .gitignore at the repo toplevel); bounded directory walk otherwise |
-| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded                                                          |
-| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked                                                                |
-| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted                                                               |
-| `git_log`           | repo          | ≤100 commits                                                                                                           |
-| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation                                                               |
-| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)                                                                   |
-| `task_list`         | config        | task ids enabled per workspace                                                                                         |
-| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output                                                              |
+| Tool                | Scope         | Notes                                                                                                                                |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `fs_inspect`        | one file      | magic-byte kind detection (image/zip/ooxml/pdf/text/binary), dims, sha256, `openWith` hints                                          |
+| `fs_image`          | one image     | native MCP `image` block (original bytes by default; `frame`/`fitMaxDim`/`format` transforms disclosed); svg scanned then rasterized |
+| `fs_contact_sheet`  | ≤24 images    | labeled montage; per-item authz + per-item failure cells; bounded output                                                             |
+| `fs_archive_list`   | one zip       | member table (sizes, ratio, encrypted, denied/unsafe flags); paginated, capped                                                       |
+| `fs_archive_entry`  | one member    | image → native block, text → bounded text, other → refusal; traversal/symlink/nested members fail closed                             |
+| `fs_pdf_info`       | one pdf       | page count, text-layer presence (PDFium/WASM)                                                                                        |
+| `fs_pdf_page`       | ≤4 pdf pages  | rendered pages as native image blocks; pixel-bounded                                                                                 |
+| `fs_pdf_text`       | ≤50 pdf pages | bounded text extraction; image-only pages reported honestly                                                                          |
+| `fs_office_text`    | one ooxml     | docx paragraphs / pptx slides / xlsx cells; macros flagged never executed; legacy OLE refused                                        |
+| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                                                                                       |
+| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class                                                                                  |
+| `fs_stat`           | one path      | metadata; symlink resolution disclosed                                                                                               |
+| `fs_read`           | one file      | line-range, byte-capped; binary refused                                                                                              |
+| `fs_read_many`      | batch         | per-file inline errors, total cap                                                                                                    |
+| `fs_search_files`   | filenames     | glob; git file universe where a repo exists (honors .gitignore at the repo toplevel); bounded directory walk otherwise               |
+| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded                                                                        |
+| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked                                                                              |
+| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted                                                                             |
+| `git_log`           | repo          | ≤100 commits                                                                                                                         |
+| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation                                                                             |
+| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)                                                                                 |
+| `task_list`         | config        | task ids enabled per workspace                                                                                                       |
+| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output                                                                            |
 
 ## Supported hosts
 
@@ -217,7 +227,7 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   allowlisted.
 
 Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
-`RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`,
+`RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`, `UNSUPPORTED_FORMAT`,
 `WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `INTERNAL_ERROR`, plus
 `CONFIG_ERROR` at config load/startup. `task_run` and search timeouts
 return `timedOut:true` in the result. Git-command failures surface as

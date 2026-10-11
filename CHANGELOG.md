@@ -4,6 +4,51 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-10-11
+
+### Added — multimodal file access (9 new tools, 23 total)
+
+Design + acceptance matrix: `docs/MULTIMODAL-SPEC.md`. All new tools are
+read-only, workspace-contained, deny-policy-enforced, and byte-capped.
+
+- `fs_inspect` — magic-byte kind detection (image/zip/ooxml/pdf/text/binary),
+  mime, size, sha256, image dims, archive member counts, `openWith` hints.
+- `fs_image` — native MCP `image` block; original bytes served
+  byte-identical when within caps; `frame` (animated), `fitMaxDim`,
+  `format` transforms are explicit and disclosed via `transform:{…}`;
+  git `headSha` provenance when the workspace is a repo toplevel.
+  SVG rasterized only after a strict external-reference scan.
+- `fs_contact_sheet` — labeled montage of ≤`contactSheetMaxItems` images
+  (explicit `paths` or `directory`+`glob`), per-item authorization and
+  per-item failure cells, one bounded PNG/JPEG block + layout map.
+- `fs_archive_list` / `fs_archive_entry` — ZIP member enumeration (sizes,
+  ratio, encrypted, denied/unsafe flags) and single-member preview through
+  the same image/text pipeline. Traversal, symlink, encrypted, nested-archive
+  members fail closed; streamed decompression under a hard byte counter.
+- `fs_pdf_info` / `fs_pdf_page` / `fs_pdf_text` — PDF via PDFium compiled to
+  WASM (memory-sandboxed, no JS execution, no remote fetch): page count and
+  text-layer presence, ≤`pdfMaxPagesRender` rendered page images/call,
+  ≤`pdfMaxPagesText` pages of bounded text/call.
+- `fs_office_text` — OOXML text extraction (docx paragraphs, pptx slides,
+  xlsx cells incl. shared-strings) through the ZIP layer; macros flagged,
+  never executed; external relationships never followed; legacy OLE refused.
+- New `limits.*` config keys (all schema-bounded): `maxMediaFileBytes`,
+  `maxImagePixels`, `maxImageOutputBytes`, `mediaConcurrency`,
+  `contactSheetMaxItems`, `archiveMaxMembers`, `archiveMaxEntryBytes`,
+  `archiveMaxRatio`, `pdfMaxPagesRender`, `pdfMaxPagesText`,
+  `pdfMaxRenderPixels`, `mediaTimeoutMs`.
+- Error code `UNSUPPORTED_FORMAT` for kind-mismatch routing.
+- Deps: `sharp@0.35.5`, `image-size@2.0.4`, `yauzl@3.4.0`,
+  `@hyzyla/pdfium@2.1.13` (3.0.0 refused by minimum-release-age);
+  dev: `yazl`, `@types/yauzl`, `@types/yazl`.
+- `tests/media.test.ts` — 41-case acceptance suite (P1–P31 matrix incl.
+  traversal/bomb/armor/denied-member negatives).
+- Host-compatibility note: `image` blocks are spec-native; MCP Inspector
+  and stdio clients render them, but ChatGPT's connector layer may drop
+  image blocks — every image tool also returns text + `structuredContent`
+  metadata so no information is silently lost. ChatGPT-side visual delivery
+  is verified separately, not assumed.
+
 ## [0.1.0] — 2026-10-09
 
 First public release, under MIT. The entries below are the cumulative

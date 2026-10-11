@@ -49,6 +49,21 @@ const LimitsSchema = z.object({
   maxGitOutputBytes: z.number().int().min(4096).max(2_000_000).default(262_144),
   walkEntryCap: z.number().int().min(1000).max(500_000).default(50_000),
   walkDepthCap: z.number().int().min(1).max(64).default(20),
+  // Media tools (fs_inspect/fs_image/fs_contact_sheet/fs_archive_*/fs_pdf_*):
+  // every bound is a hard ceiling — declared sizes inside files are
+  // adversarial and never trusted.
+  maxMediaFileBytes: z.number().int().min(65_536).max(128_000_000).default(32_000_000),
+  maxImagePixels: z.number().int().min(65_536).max(200_000_000).default(40_000_000),
+  maxImageOutputBytes: z.number().int().min(65_536).max(8_000_000).default(3_500_000),
+  mediaConcurrency: z.number().int().min(1).max(4).default(2),
+  contactSheetMaxItems: z.number().int().min(2).max(48).default(24),
+  archiveMaxMembers: z.number().int().min(100).max(50_000).default(5_000),
+  archiveMaxEntryBytes: z.number().int().min(65_536).max(64_000_000).default(32_000_000),
+  archiveMaxRatio: z.number().int().min(10).max(10_000).default(200),
+  pdfMaxPagesRender: z.number().int().min(1).max(8).default(4),
+  pdfMaxPagesText: z.number().int().min(1).max(200).default(50),
+  pdfMaxRenderPixels: z.number().int().min(65_536).max(25_000_000).default(6_250_000),
+  mediaTimeoutMs: z.number().int().min(1000).max(120_000).default(30_000),
 });
 
 const ConfigSchema = z.object({

@@ -1,6 +1,6 @@
 {
   "name": "local-workspace-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read-oriented local workspace MCP server: bounded filesystem, git and named-task tools over explicitly authorized roots.",
   "license": "MIT",
   "author": "Peter C. Bennett (https://petercbennett.com)",
@@ -37,14 +37,21 @@
     "inspector": "npx -y @modelcontextprotocol/inspector node dist/cli.js serve --stdio"
   },
   "dependencies": {
+    "@hyzyla/pdfium": "2.1.13",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "image-size": "2.0.4",
     "minimatch": "10.2.6",
+    "sharp": "0.35.5",
+    "yauzl": "3.4.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/node": "22.15.0",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
     "typescript": "5.9.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "yazl": "3.3.1"
   },
   "packageManager": "pnpm@10.18.2+sha512.9fb969fa749b3ade6035e0f109f0b8a60b5d08a1a87fdf72e337da90dcc93336e2280ca4e44f2358a649b83c17959e9993e777c2080879f3801e6f0d999ad3dd"
 }

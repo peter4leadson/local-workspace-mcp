@@ -570,4 +570,17 @@ export class GitOps {
       });
     return { repo: true, current: detached ? null : current.stdout.trim(), detached, branches, worktrees };
   }
+
+  /**
+   * HEAD commit sha when `root` is a repo toplevel, else null. Used for
+   * media-file provenance: the snapshot identity a returned image came from.
+   */
+  async headSha(root: string): Promise<{ head: string; dirty: boolean } | null> {
+    if (!(await this.repoOrNull(root))) return null;
+    const head = await git(root, ["rev-parse", "--verify", "--end-of-options", "HEAD"], this.opts(1024));
+    if (head.exitCode !== 0) return null;
+    const dirty = await git(root, ["status", "--porcelain=v2", "-z", "--end-of-options"], this.opts(65_536));
+    const hasChanges = dirty.exitCode === 0 && dirty.stdout.replace(/# branch\.[^\0]*\0/g, "").trim().length > 0;
+    return { head: head.stdout.trim(), dirty: hasChanges };
+  }
 }

@@ -31,6 +31,39 @@ server still starts — that workspace reports `WORKSPACE_UNAVAILABLE`.
   failures are dropped rather than failing calls. Rotate by
   deleting/truncating the file; it is append-only metadata.
 
+## Media tools (v0.2.0)
+
+`fs_image`/`fs_contact_sheet`/`fs_archive_*`/`fs_pdf_*`/`fs_office_text`
+are bounded by `limits.*` keys — every value is a hard ceiling and every
+override is schema-checked:
+
+| Key                    | Default | Schema cap | Governs                                              |
+| ---------------------- | ------- | ---------- | ---------------------------------------------------- |
+| `maxMediaFileBytes`    | 32 MB   | 128 MB     | any file opened by a media tool                      |
+| `maxImagePixels`       | 40 MP   | 200 MP     | decoded image area (bomb guard; checked pre-decode)  |
+| `maxImageOutputBytes`  | 3.5 MB  | 8 MB       | every returned image/pdf-render payload              |
+| `mediaConcurrency`     | 2       | 4          | simultaneous decode/render operations                |
+| `contactSheetMaxItems` | 24      | 48         | cells per contact sheet                              |
+| `archiveMaxMembers`    | 5,000   | 50,000     | enumerated zip members                               |
+| `archiveMaxEntryBytes` | 32 MB   | 64 MB      | decompressed member size (hard counter, not headers) |
+| `archiveMaxRatio`      | 200     | 10,000     | compressed→uncompressed ratio refusal                |
+| `pdfMaxPagesRender`    | 4       | 8          | pages per `fs_pdf_page` call                         |
+| `pdfMaxPagesText`      | 50      | 200        | pages per `fs_pdf_text` call                         |
+| `pdfMaxRenderPixels`   | 6.25 MP | 25 MP      | per-page render area                                 |
+| `mediaTimeoutMs`       | 30 s    | 120 s      | wall-clock deadline per media op                     |
+
+Notes:
+
+- Over-cap original images fail with `RESOURCE_LIMIT` and the agent must opt
+  in to a disclosed re-encode (`fitMaxDim`) — evidence is never silently
+  altered. Returned transforms are reported in `transform:{kind,detail}`.
+- Image tools return text metadata + `structuredContent` alongside the
+  image block, so hosts that drop `image` content (e.g. some ChatGPT
+  connector paths) still get complete metadata. See RESEARCH.md.
+- PDFium's WASM binary (~6 MB) is loaded lazily on first `fs_pdf_*` call.
+- `deniedCount`/`unsafeCount` in archive listings reveal member-name
+  existence (same class as `fs_list` denied flags) — contents never leak.
+
 ## Recovery (boring on purpose)
 
 The canonical symptom → action table lives in [README.md §Troubleshooting](../README.md#troubleshooting)
