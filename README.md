@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/peter4leadson/local-workspace-mcp/main/assets/local-workspace-mcp-icon-128.png" alt="Local Workspace MCP icon" width="72" height="72" align="right">
+
 # local-workspace-mcp
 
 Your AI assistant needs context. It does not need unrestricted access.
@@ -168,13 +170,13 @@ pure reads). `task_run` is the only tool with side effects.
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                                    | Status     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                 | verified   |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                              | configured |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                          | supported  |
+| Host                    | Mechanism                                                                                                                    | Status                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                 | verified                                   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                              | configured                                 |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                          | supported                                  |
 | ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); see the tunnel notes and cloud disclosure below this table | ChatGPT image verified; Responses untested |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                              | verified   |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                              | verified                                   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while

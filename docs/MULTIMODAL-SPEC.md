@@ -126,11 +126,12 @@ verified separately and recorded — a server-side PASS is not a host claim.
 - Tunnel datapath: PASS — forwarded `initialize` (server 0.2.0, protocol
   2025-11-25) and `tools/call` execute against the rebuilt child; Codex
   app-server `local_workspace_fs_stat` returned real data end-to-end.
-- ChatGPT connector catalog: STALE — `codex_apps__local_workspace` retains
-  the 14-tool pre-feature snapshot; the control plane never forwards
-  `tools/list` in this flow and the daemon skips stdio startup probing.
-  Connector re-discovery requires a ChatGPT-side refresh (edit/re-save the
-  "Local Workspace" connector, or a new conversation that re-lists tools).
-- Image-through-connector acceptance: **PENDING_CONNECTOR_REFRESH** — do not
-  claim ChatGPT consumes `fs_image` pixels until the refreshed catalog
-  exposes all 23 tools and a synthetic canary returns visual input.
+- ChatGPT connector catalog: VERIFIED (2026-10-11) — a ChatGPT-side
+  connector re-save re-listed the tunnel; all 23 tools exposed. Note: the
+  control plane does not forward `tools/list` in this flow and the daemon
+  skips stdio startup probing, so future tool-schema changes require the
+  same connector refresh to re-discover.
+- Image-through-connector acceptance: **PASS** — `fs_image` on the
+  synthetic canary returned a native `image/png` block and the ChatGPT
+  model identified visual elements not present in file metadata.
+  Evidence: `docs/RELEASE-0.2.0-DECISION.md`.

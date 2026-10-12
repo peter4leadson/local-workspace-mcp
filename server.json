@@ -7,6 +7,18 @@
     "url": "https://github.com/peter4leadson/local-workspace-mcp",
     "source": "github"
   },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/peter4leadson/local-workspace-mcp/v0.2.0/assets/local-workspace-mcp-icon-512.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    },
+    {
+      "src": "https://raw.githubusercontent.com/peter4leadson/local-workspace-mcp/v0.2.0/assets/local-workspace-mcp-icon-128.png",
+      "mimeType": "image/png",
+      "sizes": ["128x128"]
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
