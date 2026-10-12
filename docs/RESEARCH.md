@@ -8,8 +8,9 @@ evidence; URLs preserved.
 - MCP TypeScript SDK v1 (maintenance line): `@modelcontextprotocol/sdk@1.32.1`
   — implements spec ≤ 2025-11-25; ~76M weekly downloads.
   https://www.npmjs.com/package/@modelcontextprotocol/sdk
-- MCP TypeScript SDK v2 (current stable, split packages):
-  `@modelcontextprotocol/server@2.3.1` — implements spec 2026-07-28.
+- MCP TypeScript SDK v2 (stable line as of this review's date, split
+  packages): `@modelcontextprotocol/server@2.3.1` — implements spec
+  2026-07-28.
   https://www.npmjs.com/package/@modelcontextprotocol/server
   https://ts.sdk.modelcontextprotocol.io/v2/api/%40modelcontextprotocol/server/
 - **Decision: SDK v1 pinned at 1.32.1.** Rationale: the most-deployed line —
@@ -77,3 +78,46 @@ Gaps vs required contract:
 - Applied: least privilege (read-only + allowlist tasks), fail closed
   (explicit error classes), audit metadata only, no tool-poisoning surface in
   V1 (descriptions are static, no dynamic content injection into tool defs).
+
+## Multimodal round — 2026-10-11
+
+Decoder/parser selection (all adopted after API spikes against synthetic
+fixtures):
+
+- `image-size@2.0.4` — magic-byte type+dimension sniffing; pure JS, zero
+  deps, MIT. Chosen over hand-rolled JPEG SOF walking.
+- `sharp@0.35.5` — libvips decode/encode/resize/composite; `limitInputPixels`
+  bomb guard; Apache-2.0. Prebuilt optional deps — no build-script approval
+  needed. Verified: SVG rasterizes; libvips refuses `file://` image refs at
+  the raster layer too (defense in depth behind our own scan).
+- `yauzl@3.4.0` — reference lazy random-access ZIP reader (central directory
+  only, one member streamed at a time). Its own filename validation
+  (`invalid relative path`) fires at enumeration when `decodeStrings:true`;
+  we run `decodeStrings:false` so hostile names are _flagged_ in listings
+  rather than aborting enumeration, and gated independently at preview.
+- `@hyzyla/pdfium@2.1.13` — PDFium (Chromium's PDF engine) compiled to WASM:
+  page render → BGRA bitmap → PNG via sharp; text extraction via `getText()`.
+  Memory sandbox, no JS execution, no remote fetch, no native dep.
+  `@hyzyla/pdfium@3.0.0` (published 2026-10-10) was refused by
+  `minimum-release-age=10080`; 2.1.13 pinned instead.
+- `yazl@3.3.1` (dev) — synthetic ZIP fixtures; refuses hostile member names
+  at write time, so traversal fixtures are produced by byte-patching
+  same-length member names post-build.
+
+Native-block + host-boundary findings:
+
+- MCP `ImageContent` (`{type:"image", data:b64, mimeType}`) is spec-native;
+  verified byte-identical over real stdio JSON-RPC and InMemoryTransport.
+- `tunnel-client` (v0.0.15) forwards tool responses verbatim —
+  `payload.JSONResponse = rawResponse` in the `/v1/tunnels/{id}/response`
+  path; no client-side content filtering. The 100 KiB
+  `DefaultHarpoonMaxResponseBytes` cap applies only to tunnel-client's
+  built-in harpoon HTTP-fetch tool, NOT MCP responses.
+- Community reports (modelcontextprotocol discussion + openai/codex#5600
+  thread): ChatGPT's connector layer has historically dropped `image`
+  blocks — returning `{}` or text-serialized base64 where MCP Inspector
+  renders the same call correctly. Codex CLI ≥0.157 merged explicit MCP
+  image→model support. **Conclusion:** server emits spec-native image blocks
+  AND complete text/structured metadata on every image tool; ChatGPT
+  visual delivery is a separate acceptance checkpoint (see spec §Host
+  boundary honesty) and must never be claimed from Inspector alone.

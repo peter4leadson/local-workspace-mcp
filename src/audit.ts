@@ -4,7 +4,7 @@ import path from "node:path";
 export interface AuditEvent {
   tool: string;
   workspace?: string;
-  target?: string; // workspace-relative path or task id — never absolute host paths
+  target?: string; // workspace-relative path or task id — absolute caller-supplied paths are relativized to the root or masked to `<abs>/<basename>` by the server before recording
   ok: boolean;
   code?: string; // error class e.g. ACCESS_DENIED — never the raw message
   durationMs?: number;

@@ -121,7 +121,7 @@ export async function gitFileUniverse(root: string, env: Record<string, string>,
     maxOutputBytes: 8_000_000,
     env,
   });
-  if (res.exitCode !== 0) throw new Error("not a git repo");
+  if (res.exitCode !== 0 || res.truncated) throw new Error("not a git repo");
   return res.stdout.split("\0").filter(Boolean);
 }
 
@@ -251,11 +251,22 @@ function diffHeaderCandidates(firstLine: string): { a: string; b: string }[] {
 const PRIVATE_KEY_MARKER =
   /-{2,}\s*BEGIN\s+[A-Z0-9 \-]*PRIVATE KEY(?:\s+BLOCK)?\s*-{0,}|PuTTY-User-Key-File-\d:/i;
 
+/** Marker grammar for whitespace-stripped text: `PRIVAT\nE KEY` collapses to
+ *  `PRIVATEKEY`, which the spaced grammar can never match. */
+const PRIVATE_KEY_MARKER_COMPACT =
+  /-{2,}BEGIN[A-Z0-9\-]*PRIVATEKEY(?:BLOCK)?|PUTTY-USER-KEY-FILE-\d:/i;
+
 /** True when a buffer's early bytes carry private-key material — the
  *  name-independent deny layer (a key file renamed `notes.txt` must not
- *  become readable just because its name evades the policy). */
+ *  become readable just because its name evades the policy). Three passes:
+ *  raw text, space-collapsed (`PRIVATE\nKEY` → `PRIVATE KEY`), and
+ *  zero-collapsed (`PRIVAT\nE KEY` → `PRIVATEKEY`) — an armor marker split
+ *  mid-word across a line/page/section boundary must still refuse. */
 export function hasPrivateKeyMaterial(text: string): boolean {
-  return PRIVATE_KEY_MARKER.test(text);
+  if (PRIVATE_KEY_MARKER.test(text)) return true;
+  const oneLine = text.replace(/\s+/g, " ");
+  if (PRIVATE_KEY_MARKER.test(oneLine)) return true;
+  return PRIVATE_KEY_MARKER_COMPACT.test(oneLine.replace(/ /g, ""));
 }
 
 /** Redact any lines carrying private-key markers — defense in depth for
@@ -310,8 +321,10 @@ export function redactDiff(diff: string, policy: DenyPolicy): string {
       const firstLine = part.split("\n", 1)[0]!;
       // Content-level: key material in ANY part suppresses that part
       // entirely — redacting only the marker line would leave the base64
-      // body readable.
-      if (PRIVATE_KEY_MARKER.test(part)) {
+      // body readable. The de-prefixed pass strips the hunk's leading
+      // +/-/space markers so an armor line split mid-word across added
+      // lines (`+PRIVAT` / `+E KEY`) still matches after zero-collapse.
+      if (hasPrivateKeyMaterial(part) || hasPrivateKeyMaterial(part.replace(/^[+\- ]/gm, ""))) {
         return `${firstLine}\n[denied-content: private-key material — part suppressed]\n`;
       }
       if (part.startsWith("diff --git ")) {
@@ -474,18 +487,28 @@ export class GitOps {
   async log(root: string, opts: { limit?: number; ref?: string }) {
     if (!(await this.repoOrNull(root))) return { repo: false, note: "not a git repository toplevel" };
     const n = Math.min(Math.max(1, opts.limit ?? 20), 100);
-    const format = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1e";
+    // NUL separators: commit content cannot contain NUL bytes, so unlike
+    // \x1e/\x1f sentinels a hostile subject/author cannot forge record or
+    // field boundaries.
+    const format = "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s";
     const args = ["log", `--format=${format}`, "-n", `${n}`, "--end-of-options"];
     if (opts.ref) args.push(assertRef(opts.ref));
     const res = await git(root, args, this.opts());
     if (res.exitCode !== 0) throw new ToolError("INVALID_ARGUMENT", `git log failed: ${cleanErr(root, res.stderr)}`);
+    const clean = (s?: string) => s?.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
     const commits = res.stdout
-      .split("\x1e")
-      .map((rec) => rec.trim())
-      .filter(Boolean)
+      .split("\n")
+      .filter((rec) => rec.includes("\0"))
       .map((rec) => {
-        const f = rec.split("\x1f");
-        return { sha: f[0], short: f[1], author: f[2], email: f[3], date: f[4], subject: f[5] };
+        const f = rec.split("\0");
+        return {
+          sha: clean(f[0]),
+          short: clean(f[1]),
+          author: clean(f[2]),
+          email: clean(f[3]),
+          date: clean(f[4]),
+          subject: clean(f.slice(5).join("")),
+        };
       });
     return { repo: true, commits, shown: commits.length, truncated: commits.length === n };
   }
@@ -569,5 +592,33 @@ export class GitOps {
         return { branch: branch || null, head, detached: isDetached };
       });
     return { repo: true, current: detached ? null : current.stdout.trim(), detached, branches, worktrees };
+  }
+
+  /**
+   * HEAD commit sha when `root` is a repo toplevel, else null. Used for
+   * media-file provenance: the snapshot identity a returned image came from.
+   */
+  async headSha(root: string): Promise<{ head: string; dirty: boolean } | null> {
+    if (!(await this.repoOrNull(root))) return null;
+    const head = await git(root, ["rev-parse", "--verify", "--end-of-options", "HEAD"], this.opts(1024));
+    if (head.exitCode !== 0) return null;
+    const dirty = await git(root, ["status", "--porcelain=v2", "-z", "--end-of-options"], this.opts(65_536));
+    const hasChanges = dirty.exitCode === 0 && dirty.stdout.replace(/# branch\.[^\0]*\0/g, "").trim().length > 0;
+    return { head: head.stdout.trim(), dirty: hasChanges };
+  }
+
+  private readonly headCache = new Map<string, { at: number; p: Promise<{ head: string; dirty: boolean } | null> }>();
+
+  /** headSha with a 2s per-root cache: provenance reads spawn up to 3 git
+   *  processes outside the media semaphore, so a contact-sheet/fs_image
+   *  burst must not stampede `git status` on every call. 2s is fresh enough
+   *  for provenance truth while collapsing a burst into one probe. */
+  headShaCached(root: string): Promise<{ head: string; dirty: boolean } | null> {
+    const hit = this.headCache.get(root);
+    if (hit && Date.now() - hit.at < 2_000) return hit.p;
+    const p = this.headSha(root).catch(() => null);
+    if (this.headCache.size > 64) this.headCache.clear();
+    this.headCache.set(root, { at: Date.now(), p });
+    return p;
   }
 }

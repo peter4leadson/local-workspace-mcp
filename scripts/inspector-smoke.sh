@@ -31,7 +31,7 @@ check_not() { # desc haystack needle
 
 echo "== discovery =="
 TLIST=$($INSP --method tools/list 2>/dev/null)
-check "14 tools advertised" "$(echo "$TLIST" | grep -c '"name"')" "14"
+check "23 tools advertised" "$(echo "$TLIST" | grep -c '"name"')" "23"
 check "annotations present" "$TLIST" "readOnlyHint"
 
 echo "== happy path =="

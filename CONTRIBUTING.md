@@ -1,7 +1,8 @@
 # Contributing
 
 Prerequisites: Node ≥20, `git`, ripgrep (`rg`), and pnpm 10.18.x
-(`corepack enable` provides it).
+(`corepack enable`, then `corepack prepare pnpm@10.18.2 --activate` if the
+pinned version is not already active — check with `pnpm --version`).
 
 ## Workflow
 
@@ -20,9 +21,10 @@ The Inspector battery and `doctor` need a configured workspace first
 scripts/inspector-smoke.sh <workspace-id>   # MCP protocol battery
 ```
 
-While the repository is private, changes arrive as commits on the release
-branch by the owner. Once public: conventional-commit PRs with green
-`pnpm test` and `pnpm typecheck` are required.
+The repository is public: conventional-commit PRs are required, and the
+full CI gate must pass on the exact SHA — typecheck → build → tests →
+`pnpm audit --prod` → pack sanity → SBOM generation. `doctor` and the
+Inspector battery are local checks, not CI jobs.
 
 ## Rules that are not negotiable
 

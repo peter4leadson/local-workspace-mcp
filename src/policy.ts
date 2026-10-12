@@ -203,28 +203,32 @@ export class DenyPolicy {
       .normalize(relPath.replace(/\\/g, "/"))
       .replace(/^\.\//, "")
       .replace(/^\/+/, "");
-    const base = rel.split("/").pop() ?? rel;
+    // Trailing/leading whitespace and control chars evade suffix-anchored
+    // deny rules (`.env `, `.env\t`). Git object paths can carry them even
+    // though fs paths can't, so check both the literal and trimmed spelling
+    // — deny on either, never allow on the trimmed spelling alone.
+    const trimmed = rel.replace(
+      /^[\s\x00-\x1f\x7f\u0085\u200b\ufeff]+|[\s\x00-\x1f\x7f\u0085\u200b\ufeff]+$/g,
+      ""
+    );
+    const spellings = trimmed === rel ? [rel] : [rel, trimmed];
+    const bases = spellings.map((s) => s.split("/").pop() ?? s);
+    const matchDeny = (rule: { pattern: string }) =>
+      spellings.some((s, i) => minimatch(s, rule.pattern, { dot: true, nocase: true }) || minimatch(bases[i]!, rule.pattern, { dot: true, nocase: true }));
+    const matchAllow = (pattern: string) =>
+      minimatch(rel, pattern, { dot: true, nocase: true }) || minimatch(bases[0]!, pattern, { dot: true, nocase: true });
     // Operator extras win over the built-in template allowlist: explicit
     // operator intent can re-deny a shipped allow rule.
     for (let i = this.deny.length - this.extraCount; i < this.deny.length; i++) {
       const rule = this.deny[i]!;
-      if (minimatch(rel, rule.pattern, { dot: true, nocase: true }) || minimatch(base, rule.pattern, { dot: true, nocase: true })) {
-        return rule.reason;
-      }
+      if (matchDeny(rule)) return rule.reason;
     }
     for (const allow of this.allow) {
-      if (minimatch(rel, allow, { dot: true, nocase: true }) || minimatch(base, allow, { dot: true, nocase: true })) {
-        return null;
-      }
+      if (matchAllow(allow)) return null;
     }
     for (let i = 0; i < this.deny.length - this.extraCount; i++) {
       const rule = this.deny[i]!;
-      if (
-        minimatch(rel, rule.pattern, { dot: true, nocase: true }) ||
-        minimatch(base, rule.pattern, { dot: true, nocase: true })
-      ) {
-        return rule.reason;
-      }
+      if (matchDeny(rule)) return rule.reason;
     }
     return null;
   }

@@ -193,9 +193,18 @@ export class FsOps {
       crlfDelay: Infinity,
     });
     let scanned = 0;
+    // Rolling tail of the last non-whitespace chars: an armor marker split
+    // mid-word across lines (`PRIVAT` / `E KEY`) is invisible to per-line
+    // checks, and counting raw chars lets >128 whitespace chars exhaust the
+    // window. The zero-collapse pass rejoins a marker however it was split.
+    let tail = "";
     try {
       for await (const line of rl) {
-        if (hasPrivateKeyMaterial(line)) return true;
+        // Scan the line joined to the tail before the tail is re-sliced: a
+        // marker more than 128 non-whitespace chars into a long line must
+        // still be seen, and a boundary split rejoins across the tail.
+        if (hasPrivateKeyMaterial(tail + line)) return true;
+        tail = (tail + line.replace(/\s+/g, "")).slice(-128);
         scanned += line.length + 1;
         if (maxBytes !== undefined && scanned > maxBytes) return false;
       }

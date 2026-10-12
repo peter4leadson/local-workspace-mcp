@@ -1,5 +1,11 @@
 # Threat model — local-workspace-mcp v1
 
+**Contents:** [Assets](#assets) · [Trust boundaries](#trust-boundaries) ·
+[Mitigations](#mitigations-by-threat-class-owasp-mcp-informed) ·
+[Findings ledger](#adversarial-findings-ledger-2026-10-09-round-all-remediated--regressed) ·
+[Residual risks](#residual-risks-accepted-documented) ·
+[Failure policy](#failure-policy)
+
 Frame: AI hosts (Claude Code/Desktop, ChatGPT via OpenAI Secure MCP Tunnel,
 Codex) call this server over per-process stdio. Repositories under authorized
 roots are **adversarial data**: contents may contain prompt injection and
@@ -26,41 +32,51 @@ config is trusted; everything reachable under a root is untrusted data.
 
 ## Mitigations by threat class (OWASP MCP-informed)
 
-| Threat                                                     | Control                                                                                                                                                               | Proof                           |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| Path traversal `../`                                       | lexical containment vs realRoot pre-realpath; absolute inputs must be in-root                                                                                         | `paths.test.ts` traversal cases |
-| Symlink escape                                             | `realpathWithinRoot` resolves target or deepest existing ancestor; containment re-verified on canonical path; ELOOP rejected                                          | symlink fixture tests           |
-| Mid-path symlink ancestor                                  | ancestor-walk resolves each component chain                                                                                                                           | `link-out/pwned.txt` test       |
-| Case tricks (APFS)                                         | two gates: `isInside` (lexical, case-insensitive) then `isInsideCanonical` (realpath, case-sensitive); realpath returns on-disk case                                  | case-variant test               |
-| Encoded traversal `%2e%2e`                                 | treated as literal name → NOT_FOUND; never decoded into separators                                                                                                    | encoded test                    |
-| `~` home expansion                                         | rejected outright (`ACCESS_DENIED`)                                                                                                                                   | test                            |
-| NUL/control chars, Windows drives                          | input hygiene rejections                                                                                                                                              | tests                           |
-| Sensitive files                                            | deny policy on canonical relative path + basename, `..`-normalized (covers in-root symlink → `.env` and `a/../.env` spellings); explicit template allowlist           | `policy.test.ts`                |
-| Sensitive file renamed to benign name                      | whole-file streamed scan for `BEGIN … PRIVATE KEY` markers — refused in fs_read/git_show blobs/search previews regardless of filename                                 | adversarial CONTENT tests       |
-| Rename-laundered diff (`a/.env` → `b/safe.ts`)             | `redactDiff` checks BOTH sides of every `diff --git` header candidate; unparseable headers redact (fail closed)                                                       | adversarial rename test         |
-| Merge-conflict combined diffs (`diff --cc`/`--combined`)   | non-`--git` diff headers path-checked via `---/+++` lines; unknown `diff --*` forms redact                                                                            | adversarial merge test          |
-| Bare object-SHA read (`git show <blob-sha>`)               | `cat-file -t` type gate: bare specs must resolve to commit/tag; blob access only via policy-checked `rev:path`                                                        | adversarial SHA test            |
-| Hostile `.git/config` inside allowlisted tasks             | `GIT_CONFIG_{COUNT,KEY,VALUE}` command-scope pins override repo-local exec keys (env vars alone can't — see NF-2); operator env can't set `GIT_*`                     | adversarial env test            |
-| Search attribution spoofing (`x:1:y/` dirs, newline names) | `rg --json` structured output; no `path:line:text` parsing; denied files emit no records                                                                              | adversarial RG-PARSE tests      |
-| Absolute-path leak via errors                              | `mapFsError` converts errno failures to bounded rel-path `ToolError`s; rg/git stderr scrubbed of workspace roots (case-insensitive, configured+canonical)             | adversarial error tests         |
-| Symlinked audit path → arbitrary append                    | `lstat` refuse-before-append on the audit file AND every parent directory component                                                                                   | adversarial audit test          |
-| Malformed operator deny glob silently dead                 | structural bracket-balance validation at `DenyPolicy` construction — load fails closed                                                                                | adversarial config test         |
-| Config trust-root tampering                                | group/world-writable config refused (`mode & 0o022`); missing config → actionable `CONFIG_ERROR`                                                                      | adversarial config tests        |
-| Private-key material in history                            | `git show rev:path` denies policy-matching blob paths AND refuses key-material blobs                                                                                  | adversarial show test           |
-| `.git` internals                                           | `.git/**` denied — protects credentialed remote config & object store                                                                                                 | test + smoke                    |
-| Option injection into git                                  | strict ref allowlist + `--end-of-options` + `--` path separator + argv spawn                                                                                          | ref-validation tests            |
-| Shell injection                                            | no shell anywhere (`spawn` argv, `shell:false`); task ids validated; task argv is operator-fixed                                                                      | task tests                      |
-| Confused deputy                                            | caller picks workspace id + task id only; command text never crosses the boundary                                                                                     | TASK_DENIED tests               |
-| Env/secret leakage                                         | subprocess env = sanitized allowlist (PATH/HOME/…); `GIT_TERMINAL_PROMPT=0`; task `env` rejects key/secret/token-named vars                                           | `env-dump` test                 |
-| Resource exhaustion                                        | caps everywhere: read bytes/lines, list entries, search results+deadline (rg), readMany totals, git output, task output+timeout, file-size limit                      | limit tests                     |
-| Large-output context flood                                 | structured `truncated`/`nextStartLine`/`nextOffset` metadata                                                                                                          | tests                           |
-| ReDoS                                                      | content search delegated to ripgrep (linear-time engine); caller glob length caps (300 chars `fs_search_files`, 200 `fs_search_content`); minimatch ≥10.2.3 (CVE fix) | adversarial S-10 + dep pin      |
-| Binary dump                                                | NUL-probe → BINARY_FILE refusal                                                                                                                                       | test                            |
-| Malicious repo content                                     | files are data; they cannot alter roots/deny/tasks — those live in operator config                                                                                    | INJECTION.txt test              |
-| Tool-scope creep                                           | V1 has no write/edit/delete tools and no arbitrary-command exec; `task_run` (allowlisted argv only) is marked non-readOnly                                            | annotation checks               |
-| Secrets in logs                                            | audit = JSONL metadata only (no contents, no env, no server-resolved absolute paths; `target` echoes caller-supplied input as given)                                  | code review + test              |
-| Supply chain                                               | pinned exact versions + committed lockfile; 3 runtime deps                                                                                                            | package.json/pnpm-lock          |
-| Public exposure                                            | stdio only; no inbound network listener; tunnel client is outbound-only (optional loopback health listener only)                                                      | architecture                    |
+| Threat                                                      | Control                                                                                                                                                                                                                      | Proof                           |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Path traversal `../`                                        | lexical containment vs realRoot pre-realpath; absolute inputs must be in-root                                                                                                                                                | `paths.test.ts` traversal cases |
+| Symlink escape                                              | `realpathWithinRoot` resolves target or deepest existing ancestor; containment re-verified on canonical path; ELOOP rejected                                                                                                 | symlink fixture tests           |
+| Mid-path symlink ancestor                                   | ancestor-walk resolves each component chain                                                                                                                                                                                  | `link-out/pwned.txt` test       |
+| Case tricks (APFS)                                          | two gates: `isInside` (lexical, case-insensitive) then `isInsideCanonical` (realpath, case-sensitive); realpath returns on-disk case                                                                                         | case-variant test               |
+| Encoded traversal `%2e%2e`                                  | treated as literal name → NOT_FOUND; never decoded into separators                                                                                                                                                           | encoded test                    |
+| `~` home expansion                                          | rejected outright (`ACCESS_DENIED`)                                                                                                                                                                                          | test                            |
+| NUL/control chars, Windows drives                           | input hygiene rejections                                                                                                                                                                                                     | tests                           |
+| Sensitive files                                             | deny policy on canonical relative path + basename, `..`-normalized (covers in-root symlink → `.env` and `a/../.env` spellings); explicit template allowlist                                                                  | `policy.test.ts`                |
+| Sensitive file renamed to benign name                       | whole-file streamed scan for `BEGIN … PRIVATE KEY` markers — refused in fs_read/git_show blobs/search previews regardless of filename                                                                                        | adversarial CONTENT tests       |
+| Rename-laundered diff (`a/.env` → `b/safe.ts`)              | `redactDiff` checks BOTH sides of every `diff --git` header candidate; unparseable headers redact (fail closed)                                                                                                              | adversarial rename test         |
+| Merge-conflict combined diffs (`diff --cc`/`--combined`)    | non-`--git` diff headers path-checked via `---/+++` lines; unknown `diff --*` forms redact                                                                                                                                   | adversarial merge test          |
+| Bare object-SHA read (`git show <blob-sha>`)                | `cat-file -t` type gate: bare specs must resolve to commit/tag; blob access only via policy-checked `rev:path`                                                                                                               | adversarial SHA test            |
+| Hostile `.git/config` inside allowlisted tasks              | `GIT_CONFIG_{COUNT,KEY,VALUE}` command-scope pins override repo-local exec keys (env vars alone can't — see NF-2); operator env can't set `GIT_*`                                                                            | adversarial env test            |
+| Search attribution spoofing (`x:1:y/` dirs, newline names)  | `rg --json` structured output; no `path:line:text` parsing; denied files emit no records                                                                                                                                     | adversarial RG-PARSE tests      |
+| Absolute-path leak via errors                               | `mapFsError` converts errno failures to bounded rel-path `ToolError`s; rg/git stderr scrubbed of workspace roots (case-insensitive, configured+canonical)                                                                    | adversarial error tests         |
+| Symlinked audit path → arbitrary append                     | `lstat` refuse-before-append on the audit file AND every parent directory component                                                                                                                                          | adversarial audit test          |
+| Malformed operator deny glob silently dead                  | structural bracket-balance validation at `DenyPolicy` construction — load fails closed                                                                                                                                       | adversarial config test         |
+| Config trust-root tampering                                 | group/world-writable config refused (`mode & 0o022`); missing config → actionable `CONFIG_ERROR`                                                                                                                             | adversarial config tests        |
+| Private-key material in history                             | `git show rev:path` denies policy-matching blob paths AND refuses key-material blobs                                                                                                                                         | adversarial show test           |
+| `.git` internals                                            | `.git/**` denied — protects credentialed remote config & object store                                                                                                                                                        | test + smoke                    |
+| Option injection into git                                   | strict ref allowlist + `--end-of-options` + `--` path separator + argv spawn                                                                                                                                                 | ref-validation tests            |
+| Shell injection                                             | no shell anywhere (`spawn` argv, `shell:false`); task ids validated; task argv is operator-fixed                                                                                                                             | task tests                      |
+| Confused deputy                                             | caller picks workspace id + task id only; command text never crosses the boundary                                                                                                                                            | TASK_DENIED tests               |
+| Env/secret leakage                                          | subprocess env = sanitized allowlist (PATH/HOME/…); `GIT_TERMINAL_PROMPT=0`; task `env` rejects key/secret/token-named vars                                                                                                  | `env-dump` test                 |
+| Resource exhaustion                                         | caps everywhere: read bytes/lines, list entries, search results+deadline (rg), readMany totals, git output, task output+timeout, file-size limit                                                                             | limit tests                     |
+| Large-output context flood                                  | structured `truncated`/`nextStartLine`/`nextOffset` metadata                                                                                                                                                                 | tests                           |
+| ReDoS                                                       | content search delegated to ripgrep (linear-time engine); caller glob length caps (300 chars `fs_search_files`, 200 `fs_search_content`); minimatch ≥10.2.3 (CVE fix)                                                        | adversarial S-10 + dep pin      |
+| Binary dump                                                 | NUL-probe → BINARY_FILE refusal                                                                                                                                                                                              | test                            |
+| Malicious repo content                                      | files are data; they cannot alter roots/deny/tasks — those live in operator config                                                                                                                                           | INJECTION.txt test              |
+| Tool-scope creep                                            | V1 has no write/edit/delete tools and no arbitrary-command exec; `task_run` (allowlisted argv only) is marked non-readOnly                                                                                                   | annotation checks               |
+| Secrets in logs                                             | audit = JSONL metadata only (no contents, no env, no absolute host paths: caller-supplied absolute targets are relativized to the root or masked to `<abs>/<basename>`)                                                      | code review + test              |
+| Image decompression bomb                                    | header dims checked before decode; `sharp` `limitInputPixels` cap; whole-file byte cap before decode; decode under a concurrency semaphore + wall-clock deadline                                                             | media N8/N28 tests              |
+| SVG external-resource smuggling (`<image href=file://…>`)   | scan runs after XML-entity + full CSS-escape decode; refuses script/foreignObject/ENTITY/DOCTYPE/xml:base/xml-stylesheet/@import and any `href`/`url()`/`image()` that is not `#id` or a raster `data:` before rasterization | media N10 + review-2\* tests    |
+| Zip Slip (`../`, absolute, backslash member names)          | member names normalized + traversal-segment refusal at our layer AND yauzl central-dir validation; unsafe members flagged and unreachable for preview                                                                        | media N13/N14 tests             |
+| Zip bomb (ratio / huge expand)                              | declared ratio flag + refusal; streamed decompression under hard byte counter — declared sizes never trusted                                                                                                                 | media N18 test                  |
+| Zip symlink/special/encrypted/nested members                | unix-mode type check refuses non-regular members; encrypted refused; nested archives refused at preview                                                                                                                      | media N15/N20 tests             |
+| Sensitive file inside archive (`.env`, `*.pem`, armor body) | every member name checked through the same `DenyPolicy`; decompressed bytes re-scanned for key armor                                                                                                                         | media N16/N17 tests             |
+| Hostile PDF (malformed/encrypted/JS)                        | PDFium (Chromium parser) compiled to WASM — memory-sandboxed, no JS execution, no remote fetch; encrypted and malformed docs → bounded errors                                                                                | media N25 test                  |
+| Macro-bearing OOXML                                         | macros detected + flagged; only `<w:t>`/`<a:t>`/shared-string text extracted; external relationships never followed; legacy OLE refused                                                                                      | media office tests              |
+| Silent image alteration                                     | original bytes served byte-identical when within caps; any resize/frame/format change reported as `transform:{kind,detail}`                                                                                                  | media P1/P9/P10 tests           |
+| Image-content exfiltration via base64 inflation             | `maxImageOutputBytes` cap on every returned image; over-cap originals require explicit `fitMaxDim` opt-in                                                                                                                    | media N28 test                  |
+| Supply chain                                                | pinned exact versions + committed lockfile; 3 runtime deps                                                                                                                                                                   | package.json/pnpm-lock          |
+| Public exposure                                             | stdio only; no inbound network listener; tunnel client is outbound-only (optional loopback health listener only)                                                                                                             | architecture                    |
 
 ## Adversarial findings ledger (2026-10-09 round, all remediated + regressed)
 
@@ -110,6 +126,85 @@ A follow-up verification pass on the F-round fixes added:
 | NF-5 | LOW  | `otherDiffPaths` line cap → scans until first `@@` hunk marker.                                                                                                  |
 | NF-6 | LOW  | config-symlink refusal may surprise dotfiles setups; `/tmp` configs refused by dir-perm check — documented behavior.                                             |
 
+Independent media-layer review (2026-10-11, commit `2f192ff`):
+
+| ID   | Sev  | Finding → Fix                                                                                                                                                                                    |
+| ---- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R-1  | HIGH | `data:image/svg+xml` nested docs bypassed the SVG external-ref scan — inner `file://` hrefs rasterized out-of-root files into returned pixels → data URIs now allowlist raster image MIMEs only. |
+| R-2  | HIGH | whitespace inside quoted `url("…")` and CSS-escaped `@impo\72t` evaded the scan → CSS-escape decode pass + trimmed-quote capture + at-rule broadening.                                           |
+| R-3  | MED  | transform metadata lacked `sourceSha256`/`returnedSha256` — spec contract breach → both hashes emitted on every re-encode.                                                                       |
+| R-4  | MED  | extracted office/pdf text skipped the armor scan → `hasPrivateKeyMaterial` on every section/page before emission.                                                                                |
+| R-5  | MED  | duplicate member names desynced validation vs decompression → second dup flagged `unsafe:duplicate-name`, first wins deterministically.                                                          |
+| R-6  | MED  | semaphore released on deadline while native decode continued (zombie decodes) → deadline races `sem.run`, slot held until work settles; one shared semaphore.                                    |
+| R-7  | LOW  | trailing-space member names evaded the deny check → trimmed spelling also checked.                                                                                                               |
+| R-8  | LOW  | `dir/` members misclassified `file` after normalization → type computed on the raw name.                                                                                                         |
+| R-9  | LOW  | `format` ignored when serving originals → excluded from the serve-original fast path.                                                                                                            |
+| R-10 | LOW  | `fs_inspect` zip enumeration lacked the wall-clock deadline → wrapped; dead helpers removed.                                                                                                     |
+| R-11 | LOW  | `endPage<startPage` silently returned empty → INVALID_ARGUMENT; `textProbePages` disclosed on `fs_pdf_info`.                                                                                     |
+
+Remediation-verify pass on `3a81d09` (same reviewer, second round) added:
+
+| ID   | Sev  | Finding → Fix                                                                                                                                                                                                                                                                                              |
+| ---- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| N-1  | HIGH | scan decoded only hex CSS escapes: `\`+non-hex escapes (`@\import`, `u\rl(`), XML numeric refs in style contexts (`url&#40;file:///x&#41;`), `xml:base`, and external DOCTYPEs still bypassed → full CSS escape grammar + one-pass XML entity decode before scanning; `xml:base` and external DTD refused. |
+| N-2  | MED  | PuTTY `.ppk` markers under benign member names evaded the size-gated text scan and the byte scan → `bufferHasKeyMaterial` covers the PuTTY marker; `hasPrivateKeyMaterial` applied to all served member text regardless of size.                                                                           |
+| N-3  | LOW  | provenance `headSha` spawned 3 git processes per image/pdf call outside the media semaphore → 2s per-root `headShaCached`.                                                                                                                                                                                 |
+| N-4  | LOW  | pdf `getText` loops had no wall-clock bound → per-page deadline check under the shared semaphore; over-time ranges degrade to resumable truncation.                                                                                                                                                        |
+| N-5  | LOW  | SVG declared dims unchecked pre-raster → explicit `sniffImage` dims check against `maxImagePixels`.                                                                                                                                                                                                        |
+| N-6  | LOW  | contact-sheet composite encode ran outside the semaphore → wrapped in `sem.run`.                                                                                                                                                                                                                           |
+| N-7  | LOW  | control chars in filenames produced invalid XML label refs → stripped before escaping.                                                                                                                                                                                                                     |
+| N-8  | LOW  | armor markers split across page/section boundaries evaded per-unit checks → whitespace-collapse pass in `hasPrivateKeyMaterial` + newline and zero-separator joined checks.                                                                                                                                |
+| N-9  | INFO | `sendToolListChanged` fires once per process — cosmetic for single-shot stdio; accepted.                                                                                                                                                                                                                   |
+| N-10 | INFO | derived previews (contact sheet, pdf page) carry per-item/source hashes but not the `transform` block — spec clarified.                                                                                                                                                                                    |
+
+Verification residuals on `7e98769` (all LOW/INFO; empirically inert on the
+bundled rasterizer — sharp 0.35.5 ships librsvg 2.63.2 which loads no
+external resources at all, so the scan is pure defense-in-depth in this
+build) closed in the same pass:
+
+| ID  | Sev  | Finding → Fix                                                                                                                                                                                  |
+| --- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V-1 | LOW  | unterminated `url(`/`image(` evaded the scan (CSS auto-closes at end-of-value) → leftover function-token check after the terminated-call scan.                                                 |
+| V-2 | LOW  | `\`+CRLF line continuation diverged from XML's CRLF→LF normalization → input CRLF-normalized before decode.                                                                                    |
+| V-3 | LOW  | SMIL `<set>/<animate>` carry URLs in `to=`/`from=`/`by=`/`values=` → scheme-or-absolute values refused.                                                                                        |
+| V-4 | INFO | bare-string CSS image functions (`image-set`/`src`/`cross-fade`) unscan­ned → added to the ref-function scan.                                                                                  |
+| V-5 | INFO | namespace-prefixed `<x:script>`/`<x:foreignObject>` evaded element checks → prefix-tolerant patterns.                                                                                          |
+| V-6 | LOW  | pre-existing: `fsOps` line-level armor scan can miss markers split across lines beyond the sniff head (`fs_read`/`fs_search_content` path — unaffected by this diff) → tracked as a follow-up. |
+
+A focused verify pass on the V-round commit added (all LOW, same
+inert-on-bundled-librsvg posture):
+
+| ID  | Sev  | Finding → Fix                                                                                                                                            |
+| --- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F-1 | LOW  | a `#`-leading arg inside a multi-arg CSS fn could swallow a nested `url(file:///…)` → `(` excluded from the function-arg capture.                        |
+| F-2 | LOW  | SMIL check missed relative IRIs (`to="../x"` resolves off the file: base) → segments containing `..`, `/`, `\`, or a scheme refused.                     |
+| F-3 | LOW  | entity-encoded `\&#13;&#10;` continuations survived CRLF normalization → CSS continuation rule consumes `[\n\r\f]+`.                                     |
+| F-4 | INFO | `\\host` UNC over-decoded to `\h` before the SMIL check → covered by the `\\`/`/`/`..` segment refusal.                                                  |
+| F-5 | INFO | fail-closed false-positive surface (benign `src(foo)` text, quoted `image-set("a.png" 1x)` args refused) — accepted posture for a defense-in-depth scan. |
+
+Release-assurance red-team round on `b4cc053` (hostile synthetic fixtures,
+verified over both the module API and real `serve --stdio` wire path) — all
+findings remediated and pinned by `tests/redteam-regressions.test.ts`:
+
+| ID     | Sev     | Finding → Fix                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RT-1   | MED     | mid-word armor split (`PRIVAT\nE KEY`) evaded every private-key scan surface → zero-collapse pass (`PRIVATEKEY`) added to `hasPrivateKeyMaterial`/`bufferHasKeyMaterial`, each streamed line scanned joined to a rolling 128-char non-whitespace tail (a suffix-window check alone evicted markers deep in long lines), and a `+`/`-`/space de-prefix pass inside diff parts. |
+| RT-2   | LOW-MED | suffix-anchored deny globs evaded by trailing whitespace/control chars (`.env `, `HEAD:.env\t` — git object paths spell names fs paths can't) → `DenyPolicy.check` also tests the trimmed spelling for _deny only_; allowlist applies to the literal spelling only.                                                                                                           |
+| RT-3   | MED     | `task_run` stall past timeout: `close` waits on all stdio writers, and a detached grandchild holding inherited pipes survives the group kill → after kill, the server destroys its pipe ends and settles on `exit` (+5 s fallback).                                                                                                                                           |
+| RT-4   | LOW     | `\x1e`/`\x1f` in commit subjects forged phantom `git_log` records → NUL separators (unforgeable in commit content) + field sanitization.                                                                                                                                                                                                                                      |
+| INFO-5 | LOW     | `task_run` returned raw output while rg/git scrub root paths → stdout/stderr now get the same `<root>` scrub.                                                                                                                                                                                                                                                                 |
+| INFO-6 | LOW     | `fs_office_text` silently dropped unextractable sections → `sectionsFailed` counter surfaced.                                                                                                                                                                                                                                                                                 |
+| INFO-7 | LOW     | prototype-key task ids (`tasks:["constructor"]`) passed config validation then threw `INTERNAL_ERROR` → `Object.hasOwn` checks → `TASK_DENIED`.                                                                                                                                                                                                                               |
+
+ATAM-mandated robustness items closed in the same pass: platform declared
+POSIX-only (`package.json` `os` field + `doctor` platform check — Windows
+group-kill/`/dev/null` semantics were silently partial); cumulative call
+deadlines for `fs_contact_sheet` (3× `mediaTimeoutMs` budget) and
+`fs_pdf_page` renders (2×); `gitFileUniverse` falls back to the honest
+directory walk when `ls-files` output is truncated instead of returning a
+silently partial universe; a rejected PDFium init is no longer cached
+forever (next call retries).
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
@@ -136,10 +231,12 @@ A follow-up verification pass on the F-round fixes added:
    model may be told to read more files; the deny policy and root boundary
    remain the hard limit.
 7. **Content-marker heuristics**: private-key detection matches armor markers
-   (`BEGIN … PRIVATE KEY`, PuTTY). A UTF-16/otherwise-encoded key evades the
-   byte-level scan (decodes with NULs, still catchable by the binary probe in
-   the first 8 KiB only). Marker detection is defense in depth, not the
-   primary boundary — name/policy denies are.
+   (`BEGIN … PRIVATE KEY`, PuTTY) across raw, space-collapsed, and
+   zero-collapsed spellings. It is not a general secret scanner — renamed
+   AWS/GitHub-style tokens without armor (and a UTF-16/otherwise-encoded
+   key) pass it; the byte-level scan only guarantees refusal of key armor.
+   Marker detection is defense in depth, not the primary boundary —
+   name/policy denies are.
 8. **Task-side git config**: `GIT_CONFIG_*` env overrides neutralize the
    headline repo-config exec keys (`core.fsmonitor`, `core.sshCommand`,
    `diff.external`, `core.hooksPath=/dev/null` disables repo hooks, …) but
@@ -153,6 +250,31 @@ A follow-up verification pass on the F-round fixes added:
    call, files get head-only sniff + per-preview marker checks — a key
    buried deep in a large file beyond the budget could leak base64 lines
    lacking the marker. Bounded 240-char previews limit blast.
+10. **Native raster decoding runs in-process**: sharp/libvips (and bundled
+    librsvg for SVG) decode attacker-controlled bytes inside the
+    trust-boundary process. Caps, the shared semaphore, and deadlines bound
+    resources but not memory safety — a libvips decoder CVE could
+    compromise the process holding access to all authorized roots. The SVG
+    external-reference scan (`svgExternalRefReason`) is additionally a
+    _scan, not a sandbox_: librsvg still parses adversarial XML, and SVG
+    should be treated as permanently watchlisted. Process-isolated decode
+    workers are the planned pre-1.0 mitigation; operators who accept no
+    raster-decode exposure can keep SVG/deny lists or workspace scoping
+    accordingly.
+11. **Encrypted archive members are refused, not decrypted**: any member
+    with the encryption bit set fails closed. Encrypted archives therefore
+    expose member _names_ only — the same existence-oracle class as denied
+    file listings.
+12. **ChatGPT connector caching**: the connector layer may retain a frozen
+    `tools/list` snapshot and may drop `image` content blocks entirely —
+    every image tool therefore also returns full metadata as text +
+    `structuredContent`. Host-side visual delivery is verified separately
+    per host, never assumed from Inspector behavior.
+13. **POSIX-only**: process-group kill semantics and `/dev/null` env pins
+    have no Windows equivalent — the package declares `os: [darwin, linux]`
+    and `doctor` reports `platform` explicitly rather than degrading
+    silently. Windows support would need per-platform task-kill and
+    git-isolation equivalents.
 
 ## Failure policy
 

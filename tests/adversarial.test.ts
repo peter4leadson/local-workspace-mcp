@@ -409,6 +409,54 @@ describe("AUDIT: metadata-only, no write primitive", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(fs.readFileSync(victim, "utf8")).toBe("ORIGINAL\n");
   });
+
+  it("never stores absolute host paths in the audit target", async () => {
+    // AuditLog refuses to write through symlinked path components; macOS
+    // os.tmpdir() lives under /var -> /private/var, so canonicalize to a
+    // symlink-free root first (no-op on Linux).
+    const auditDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "lwm-audit-"));
+    const auditFile = path.join(auditDir, "audit-real.jsonl");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const { createServer } = await import("../src/server.js");
+    const fsOps = new FsOps(f.index, f.policy, f.cfg.limits, gitEnv, 15_000);
+    const git = new GitOps(15_000, 262_144, f.policy);
+    const tasks = new TaskRunner(f.index, f.cfg.tasks, f.cfg.limits);
+    const server = createServer({
+      cfg: f.cfg,
+      index: f.index,
+      policy: f.policy,
+      fsOps,
+      gitOps: git,
+      tasks,
+      audit: new AuditLog(auditFile),
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "audit-test", version: "0.0.1" });
+    await client.connect(ct);
+
+    const realRoot = fs.realpathSync(f.wsDir);
+    await client.callTool({
+      name: "fs_read",
+      arguments: { workspace: "test", path: path.join(realRoot, "src", "hello.txt") },
+    });
+    await client.callTool({
+      name: "fs_read",
+      arguments: { workspace: "test", path: "/etc/hostname" },
+    });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const lines = fs
+      .readFileSync(auditFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(lines.some((l) => l.target === "src/hello.txt")).toBe(true);
+    expect(lines.some((l) => l.target === "<abs>/hostname")).toBe(true);
+    expect(lines.some((l) => typeof l.target === "string" && l.target.startsWith("/"))).toBe(false);
+    fs.rmSync(auditDir, { recursive: true, force: true });
+  });
 });
 
 describe("META: fs_stat reports traversal honestly", () => {

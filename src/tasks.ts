@@ -15,7 +15,9 @@ export class TaskRunner {
     const ws = this.index.get(workspaceId);
     return ws.config.tasks.map((taskId) => ({
       taskId,
-      ...(this.defs[taskId]?.description ? { description: this.defs[taskId].description } : {}),
+      ...(Object.hasOwn(this.defs, taskId) && this.defs[taskId]?.description
+        ? { description: this.defs[taskId].description }
+        : {}),
       timeoutMs: this.defs[taskId]?.timeoutMs ?? 60_000,
     }));
   }
@@ -25,7 +27,7 @@ export class TaskRunner {
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(taskId)) {
       throw new ToolError("INVALID_ARGUMENT", "invalid task id");
     }
-    if (!ws.config.tasks.includes(taskId)) {
+    if (!ws.config.tasks.includes(taskId) || !Object.hasOwn(this.defs, taskId)) {
       throw new ToolError(
         "TASK_DENIED",
         `task ${JSON.stringify(taskId)} is not enabled for workspace ${workspaceId}; call task_list`
@@ -48,6 +50,12 @@ export class TaskRunner {
       maxOutputBytes: this.limits.maxTaskOutputBytes,
       env: taskEnv(def.env),
     });
+    // Same host-path posture as rg/git stderr: absolute root paths in task
+    // output get replaced by the <root> placeholder. Scrub both the task cwd
+    // and the workspace root — a def.cwd subdir would otherwise leak the
+    // parent root.
+    const scrubRes = [cwd, ws.realRoot].map((p) => new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"));
+    const scrub = (s: string) => scrubRes.reduce((acc, re) => acc.replace(re, "<root>"), s);
     return {
       workspace: workspaceId,
       taskId,
@@ -56,8 +64,8 @@ export class TaskRunner {
       timedOut: res.timedOut,
       durationMs: res.durationMs,
       truncated: res.truncated,
-      stdout: res.stdout,
-      stderr: res.stderr,
+      stdout: scrub(res.stdout),
+      stderr: scrub(res.stderr),
     };
   }
 }

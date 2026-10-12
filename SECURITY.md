@@ -58,6 +58,12 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 - `spawn` argv only, `shell:false`, `--end-of-options`, strict ref grammar,
   sanitized subprocess env, `GIT_TERMINAL_PROMPT=0`.
 - Bounded everything: bytes, lines, entries, matches, time, output.
+- Media-specific bounds (v0.2.0): decoded-pixel caps, per-image output caps,
+  streamed zip-member decompression under byte counters, ratio refusals,
+  nested-archive refusal, PDFium WASM sandboxing, strict SVG
+  external-reference scans, and a decode concurrency semaphore.
+  Private-key armor scanning applies to binary payloads too — including
+  inside PNG `tEXt` chunks and archive members.
 - Metadata-only audit log that refuses to write through a symlinked file or
   any symlinked parent component.
 - Config permission enforcement (refuses group/world-writable trust root).
@@ -65,8 +71,9 @@ The bar is a demonstrated invariant failure, not a plausible-sounding concern:
 
 ## Supported versions
 
-| Version                 | Status                           |
-| ----------------------- | -------------------------------- |
-| 0.1.0 release candidate | Under corporate-readiness review |
+| Version | Status                               |
+| ------- | ------------------------------------ |
+| 0.2.x   | Current release line — supported     |
+| 0.1.x   | Superseded; no further fixes planned |
 
-Pre-1.0: only the latest commit on the release branch is supported.
+Pre-1.0: only the latest published release is supported.

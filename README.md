@@ -9,8 +9,9 @@ default-deny list for secrets, `.env` files, private keys, and `.git`
 internals. Git read tools and operator-declared named tasks provide
 bounded capability without giving the model a shell.
 
-- **14 tools** over stdio JSON-RPC: bounded filesystem reads/searches,
-  read-only git (status/diff/log/show/branches), and `task_run` for
+- **23 tools** over stdio JSON-RPC: bounded filesystem reads/searches,
+  read-only git (status/diff/log/show/branches), multimodal file inspection
+  (images/archives/PDF/Office), and `task_run` for
   explicitly allowlisted commands.
 - **One transport:** each MCP host spawns `workspace-mcp serve --stdio`.
   No inbound listener, no daemon; the server itself makes no network calls
@@ -21,6 +22,15 @@ bounded capability without giving the model a shell.
 
 Evaluating this for team use? Start at [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)
 and [SECURITY.md](SECURITY.md).
+
+**Contents:** [The problem](#the-problem) · [Quick start](#quick-start) ·
+[Usage](#usage-examples) · [Tool surface](#tool-surface) ·
+[Supported hosts](#supported-hosts) · [Permission model](#permission-model) ·
+[What it will not do](#what-it-will-not-do) ·
+[Security architecture](#security-architecture) ·
+[Configuration](#configuration-reference) · [Troubleshooting](#troubleshooting) ·
+[Compatibility](#compatibility) · [Verifying the build](#verifying-the-build) ·
+[Release status](#release-status)
 
 ## The problem
 
@@ -49,7 +59,11 @@ npm install -g local-workspace-mcp          # puts workspace-mcp on PATH
 pnpm install && pnpm build && npm link
 
 workspace-mcp init-config     # writes ~/.config/local-workspace-mcp/config.json (mode 600)
-$EDITOR ~/.config/local-workspace-mcp/config.json   # replace the example workspace (below)
+
+# REQUIRED: replace the example workspace path with a real absolute path —
+# any editor works; doctor fails until you do
+nano ~/.config/local-workspace-mcp/config.json
+
 workspace-mcp doctor          # must print "doctor: ALL GREEN" (use --json for CI)
 ```
 
@@ -76,8 +90,15 @@ Minimal working config (strict JSON — no comments or trailing commas):
 }
 ```
 
-Then connect a host (below), confirm it registered (`claude mcp list`,
-`/mcp`, or your host's equivalent), and ask: _"use workspace_roots, then
+Then register the server with a host. For Claude Code:
+
+```sh
+claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio
+claude mcp list        # confirm it registered
+```
+
+Other hosts use config-file entries (below — substitute the absolute path
+from `which workspace-mcp`). Then ask: _"use workspace_roots, then
 fs_list on myproj"_. First useful call sequence: `fs_list` → `git_status`
 → `git_diff` on uncommitted work, where a chat client otherwise
 has no eyes.
@@ -116,35 +137,44 @@ gracefully.
 
 ## Tool surface
 
-All 14 tools, annotated `readOnlyHint` where true (hosts can auto-approve
+All 23 tools, annotated `readOnlyHint` where true (hosts can auto-approve
 pure reads). `task_run` is the only tool with side effects.
 
-| Tool                | Scope         | Notes                                                                                                                  |
-| ------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                                                                         |
-| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class                                                                    |
-| `fs_stat`           | one path      | metadata; symlink resolution disclosed                                                                                 |
-| `fs_read`           | one file      | line-range, byte-capped; binary refused                                                                                |
-| `fs_read_many`      | batch         | per-file inline errors, total cap                                                                                      |
-| `fs_search_files`   | filenames     | glob; git file universe where a repo exists (honors .gitignore at the repo toplevel); bounded directory walk otherwise |
-| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded                                                          |
-| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked                                                                |
-| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted                                                               |
-| `git_log`           | repo          | ≤100 commits                                                                                                           |
-| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation                                                               |
-| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)                                                                   |
-| `task_list`         | config        | task ids enabled per workspace                                                                                         |
-| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output                                                              |
+| Tool                | Scope         | Notes                                                                                                                                |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `fs_inspect`        | one file      | magic-byte kind detection (image/zip/ooxml/pdf/text/binary), dims, sha256, `openWith` hints                                          |
+| `fs_image`          | one image     | native MCP `image` block (original bytes by default; `frame`/`fitMaxDim`/`format` transforms disclosed); svg scanned then rasterized |
+| `fs_contact_sheet`  | ≤24 images    | labeled montage; per-item authz + per-item failure cells; bounded output                                                             |
+| `fs_archive_list`   | one zip       | member table (sizes, ratio, encrypted, denied/unsafe flags); paginated, capped                                                       |
+| `fs_archive_entry`  | one member    | image → native block, text → bounded text, other → refusal; traversal/symlink/nested members fail closed                             |
+| `fs_pdf_info`       | one pdf       | page count, text-layer presence (PDFium/WASM)                                                                                        |
+| `fs_pdf_page`       | ≤4 pdf pages  | rendered pages as native image blocks; pixel-bounded                                                                                 |
+| `fs_pdf_text`       | ≤50 pdf pages | bounded text extraction; image-only pages reported honestly                                                                          |
+| `fs_office_text`    | one ooxml     | docx paragraphs / pptx slides / xlsx cells; macros flagged never executed; legacy OLE refused                                        |
+| `workspace_roots`   | reads config  | workspace ids + availability; never host paths                                                                                       |
+| `fs_list`           | one directory | bounded, paginated; denied entries flagged by class                                                                                  |
+| `fs_stat`           | one path      | metadata; symlink resolution disclosed                                                                                               |
+| `fs_read`           | one file      | line-range, byte-capped; binary refused                                                                                              |
+| `fs_read_many`      | batch         | per-file inline errors, total cap                                                                                                    |
+| `fs_search_files`   | filenames     | glob; git file universe where a repo exists (honors .gitignore at the repo toplevel); bounded directory walk otherwise               |
+| `fs_search_content` | file contents | ripgrep `--json`; literal or `regex:true`; time/count bounded                                                                        |
+| `git_status`        | repo          | branch, HEAD, staged/modified/deleted/renamed/untracked                                                                              |
+| `git_diff`          | repo          | worktree/staged/ref diff; bounded; denied paths redacted                                                                             |
+| `git_log`           | repo          | ≤100 commits                                                                                                                         |
+| `git_show`          | repo          | commits/tags and `ref:path` blobs; strict ref validation                                                                             |
+| `git_branches`      | repo          | branches, upstreams, worktrees (host paths redacted)                                                                                 |
+| `task_list`         | config        | task ids enabled per workspace                                                                                                       |
+| `task_run`          | subprocess    | allowlisted argv only; `shell:false`; caps on time/output                                                                            |
 
 ## Supported hosts
 
-| Host                    | Mechanism                                                                                                    | Status     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ---------- |
-| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list` | verified   |
-| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                              | configured |
-| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                          | supported  |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only)                                             | verified   |
-| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                              | verified   |
+| Host                    | Mechanism                                                                                                                    | Status     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                 | verified   |
+| Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                              | configured |
+| Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                          | supported  |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); see the tunnel notes and cloud disclosure below this table | ChatGPT image verified; Responses untested |
+| MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                              | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
 not your shell's. If a host reports ENOENT or stays disconnected while
@@ -178,12 +208,30 @@ stdio command locally; no inbound network listener opens. (tunnel-client
 can optionally bind a loopback-only health endpoint — see OPERATIONS.)
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+ChatGPT host validation (2026-10-11): after connector refresh, a live
+connection discovered all 23 tools and consumed a native `fs_image` image
+block. A synthetic visual canary was described from its pixels, independently
+of file metadata. PDF and Office tools are advertised, but their individual
+ChatGPT-side extraction/rendering paths have not yet been sampled. Future
+tool-schema updates may require another manual connector refresh; every image
+tool also returns metadata for hosts that do not expose visual content.
+
+Cloud disclosure: over the ChatGPT tunnel path, tool outputs — including
+image bytes and extracted document text — transit OpenAI's connector
+infrastructure to reach the model. That is the point of the integration,
+but it means anything the boundary allows the model to read also leaves
+the machine for that host. Keep roots and deny rules tight on any
+workspace served to a cloud connector.
+
 ## Permission model
 
-- **Roots are explicit.** Nothing outside `workspaces[].path` is reachable;
+- **Roots are explicit.** Filesystem tools cannot read anything outside
+  `workspaces[].path`;
   `~`, control characters, Windows drive paths, and `..` traversal are
-  rejected before any syscall, and again after `realpath`. Point roots at
-  the projects you actually work on; never authorize `~/` or a parent
+  rejected before any syscall, and again after `realpath`. (Allowlisted
+  `task_run` commands are the one exception — they run as you outside the
+  root, so allowlist only commands you would run.) Point roots at the
+  projects you actually work on; never authorize `~/` or a parent
   directory that contains things the assistant should not read.
 - **Denied by default,** including: `.env*`/`*.env` spellings (except
   `.env[.*].{example,sample,template}`), `.envrc`, private-key filenames,
@@ -211,16 +259,21 @@ Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
   sanitized environment, per-task timeout and output caps. Operator env
   cannot inject `GIT_*`, loader, or interpreter hooks.
 - **Errors are bounded:** every failure is `CODE: message`; absolute host
-  paths are scrubbed from tool errors, except that a task-spawn failure
-  reports the operator-configured argv itself. `task_run` returns subprocess
-  stdout/stderr verbatim — that output belongs to commands the operator
-  allowlisted.
+  paths are scrubbed from server-generated tool errors, except that a
+  task-spawn failure reports the operator-configured argv itself.
+  `task_run` returns subprocess stdout/stderr with the task's configured
+  `cwd` and workspace-root strings replaced by `<root>` — other absolute
+  paths a command prints are not scrubbed; that output belongs to
+  commands the operator allowlisted.
 
 Errors: `ACCESS_DENIED`, `OUTSIDE_ROOT`, `NOT_FOUND`, `BINARY_FILE`,
-`RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`,
+`RESOURCE_LIMIT`, `TASK_DENIED`, `UNKNOWN_WORKSPACE`, `UNSUPPORTED_FORMAT`,
 `WORKSPACE_UNAVAILABLE`, `INVALID_ARGUMENT`, `INTERNAL_ERROR`, plus
 `CONFIG_ERROR` at config load/startup. `task_run` and search timeouts
-return `timedOut:true` in the result. Git-command failures surface as
+return `timedOut:true` in the result; media deadline exhaustion is
+reported as `TIMEOUT:` on the failed item or call, so a multi-item
+result can come back partial rather than failed wholesale.
+Git-command failures surface as
 `INVALID_ARGUMENT` (`git_diff`/`git_log`/`git_show` map non-zero exits,
 including timeout kills) or `INTERNAL_ERROR` (`git_status`); a timeout on
 repo detection reads as `repo:false`, and `git_branches` tolerates a
@@ -251,7 +304,7 @@ AI host ── stdio JSON-RPC ──▶ workspace-mcp serve --stdio
   audit.ts    metadata-only JSONL; refuses symlinked targets
 ```
 
-The full boundary analysis, the 30-finding adversarial ledger, the 33-case
+The full boundary analysis, the multi-round findings ledger, the adversarial
 regression suite, and documented residual risks live in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Disclosure
 policy in [SECURITY.md](SECURITY.md).
 
@@ -316,6 +369,7 @@ the file first if you intend a reset.
 | Task executable missing                      | `doctor` flags `task.<id>.executable`; install it or fix task `env.PATH`                                                         |
 | Search returns nothing                       | `rg` must be on the sanitized PATH; `doctor` checks it                                                                           |
 | `ACCESS_DENIED`/`OUTSIDE_ROOT`/`BINARY_FILE` | policy working as intended; widen only in operator config                                                                        |
+| `TIMEOUT:` on a media call/item              | deadline hit — narrow the request (fewer pages/items, smaller `fitMaxDim`) or raise `limits.mediaTimeoutMs`                      |
 | Unexpected `INTERNAL_ERROR`                  | check the host's MCP stderr log; report per [SECURITY.md](SECURITY.md)                                                           |
 | Tunnel (ChatGPT) down                        | `tunnel-client runtimes status`; recovery in [docs/OPERATIONS.md](docs/OPERATIONS.md)                                            |
 
@@ -328,8 +382,12 @@ uninstall entirely, also remove the host entry (`claude mcp remove`, the
 
 ## Compatibility
 
-- Node ≥ 20 (uses `node:util` parseArgs; tested on Node 22).
-- macOS/Linux. Windows is untested; path validation is POSIX-shaped.
+- Node ≥ 20 (uses `node:util` parseArgs; packaged install verified on
+  Node 20.11, 22.12, and 24.21).
+- macOS/Linux only — declared via `os` in `package.json` and checked by
+  `doctor` (`platform`). Windows is unsupported, not just untested: task
+  timeouts rely on POSIX process-group kill and git/task isolation pins
+  `/dev/null`.
 - MCP SDK `@modelcontextprotocol/sdk` v1.x line (spec ≤ 2025-11-25);
   v2 API surface is deliberately not adopted yet (see [docs/RESEARCH.md](docs/RESEARCH.md)).
 - ripgrep required for `fs_search_content`; git required for `git_*`.
@@ -338,7 +396,7 @@ uninstall entirely, also remove the host entry (`claude mcp remove`, the
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm test                    # 169 vitest cases incl. 33-case adversarial suite
+pnpm test                    # 275 vitest cases incl. adversarial + red-team regressions
 pnpm typecheck && pnpm build
 workspace-mcp doctor         # deterministic diagnostics
 scripts/inspector-smoke.sh <workspace-id>   # 17-check MCP Inspector battery
@@ -355,11 +413,13 @@ pnpm audit --prod            # dependency audit
 
 ## Release status
 
-v0.1.0 is published on npm as `local-workspace-mcp` and listed on the
-official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
-The evaluated release surface (this README,
-[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), the test suite, and the packaged tarball) is
-described in [docs/RELEASE-PACKET.md](docs/RELEASE-PACKET.md).
+Version 0.1.0 is published on npm as `local-workspace-mcp` and listed on
+the official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
+**0.2.0 is a release candidate — not yet published**; see
+[CHANGELOG.md](CHANGELOG.md) for the release history.
+A 0.2.0 release decision record is maintained in the repository at
+`docs/RELEASE-0.2.0-DECISION.md` (internal ledger — not shipped in the
+tarball; the frozen 0.1.0 record is `docs/RELEASE-PACKET.md`).
 
 ---
 

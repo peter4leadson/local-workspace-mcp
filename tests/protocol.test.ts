@@ -49,7 +49,16 @@ describe("protocol end-to-end", () => {
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual(
       [
+        "fs_archive_entry",
+        "fs_archive_list",
+        "fs_contact_sheet",
+        "fs_image",
+        "fs_inspect",
         "fs_list",
+        "fs_office_text",
+        "fs_pdf_info",
+        "fs_pdf_page",
+        "fs_pdf_text",
         "fs_read",
         "fs_read_many",
         "fs_search_content",

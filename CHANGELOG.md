@@ -4,6 +4,101 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-10-11
+
+### Added — multimodal file access (9 new tools, 23 total)
+
+Design + acceptance matrix: `docs/MULTIMODAL-SPEC.md`. All new tools are
+read-only, workspace-contained, deny-policy-enforced, and byte-capped.
+
+- `fs_inspect` — magic-byte kind detection (image/zip/ooxml/pdf/text/binary),
+  mime, size, sha256, image dims, archive member counts, `openWith` hints.
+- `fs_image` — native MCP `image` block; original bytes served
+  byte-identical when within caps; `frame` (animated), `fitMaxDim`,
+  `format` transforms are explicit and disclosed via `transform:{…}`;
+  git `headSha` provenance when the workspace is a repo toplevel.
+  SVG rasterized only after a strict external-reference scan.
+- `fs_contact_sheet` — labeled montage of ≤`contactSheetMaxItems` images
+  (explicit `paths` or `directory`+`glob`), per-item authorization and
+  per-item failure cells, one bounded PNG/JPEG block + layout map.
+- `fs_archive_list` / `fs_archive_entry` — ZIP member enumeration (sizes,
+  ratio, encrypted, denied/unsafe flags) and single-member preview through
+  the same image/text pipeline. Traversal, symlink, encrypted, nested-archive
+  members fail closed; streamed decompression under a hard byte counter.
+- `fs_pdf_info` / `fs_pdf_page` / `fs_pdf_text` — PDF via PDFium compiled to
+  WASM (memory-sandboxed, no JS execution, no remote fetch): page count and
+  text-layer presence, ≤`pdfMaxPagesRender` rendered page images/call,
+  ≤`pdfMaxPagesText` pages of bounded text/call.
+- `fs_office_text` — OOXML text extraction (docx paragraphs, pptx slides,
+  xlsx cells incl. shared-strings) through the ZIP layer; macros flagged,
+  never executed; external relationships never followed; legacy OLE refused.
+- New `limits.*` config keys (all schema-bounded): `maxMediaFileBytes`,
+  `maxImagePixels`, `maxImageOutputBytes`, `mediaConcurrency`,
+  `contactSheetMaxItems`, `archiveMaxMembers`, `archiveMaxEntryBytes`,
+  `archiveMaxRatio`, `pdfMaxPagesRender`, `pdfMaxPagesText`,
+  `pdfMaxRenderPixels`, `mediaTimeoutMs`.
+- Error code `UNSUPPORTED_FORMAT` for kind-mismatch routing.
+- Deps: `sharp@0.35.5`, `image-size@2.0.4`, `yauzl@3.4.0`,
+  `@hyzyla/pdfium@2.1.13` (3.0.0 refused by minimum-release-age);
+  dev: `yazl`, `@types/yauzl`, `@types/yazl`.
+- `tests/media.test.ts` — 71-case acceptance suite (P1–P31 matrix incl.
+  traversal/bomb/armor/denied-member negatives and 27 independent-review
+  regression cases).
+- `capabilities.tools.listChanged` advertised and
+  `notifications/tools/list_changed` emitted once after initialization.
+- Host-compatibility note: `image` blocks are spec-native; MCP Inspector
+  and stdio clients render them, but ChatGPT's connector layer may drop
+  image blocks — every image tool also returns text + `structuredContent`
+  metadata so no information is silently lost. **ChatGPT status: pending** —
+  its connector retains a stale 14-tool catalog snapshot until a
+  ChatGPT-side connector re-save/reconnect re-lists the tunnel; visual
+  delivery to the ChatGPT model is unverified until then.
+
+### Security — independent review rounds (see `docs/THREAT-MODEL.md` ledger)
+
+Three clean-context review rounds on exact SHAs; every demonstrated finding
+fixed with a permanent regression test:
+
+- **HIGH** — nested `data:image/svg+xml` payloads bypassed the SVG
+  external-reference scan (inner doc could carry `file://` hrefs); raster-only
+  data-URI allowlist.
+- **HIGH** — quoted-whitespace and CSS-escaped `url()`/`@import` spellings
+  evaded the same scan; extended again in rounds 2–3 to the full CSS escape
+  grammar, XML-entity decode, `xml:base`, external DOCTYPEs, SMIL value
+  attributes, unterminated tokens, and multi-arg function nesting.
+- **MED** — transform outputs lacked `sourceSha256`/`returnedSha256`;
+  extracted PDF/Office text skipped the armor scan; duplicate ZIP member
+  names desynced validation vs decompression; a timeout could release a
+  decode slot while native work continued (shared media semaphore now held
+  until work settles); PuTTY-format keys evaded size-gated armor checks.
+- **LOW** — trailing-space member deny bypass, `dir/` misclassification,
+  forced-format fast path, missing enumeration deadline, invalid page
+  ranges, provenance git fan-out outside the semaphore, PDF text loop
+  deadlines, SVG declared dims, sheet-encode budget, hostile-filename labels,
+  and cross-boundary armor-marker splits.
+- Whole-file key armor now also matches PuTTY `.ppk` markers and
+  whitespace-collapsed spellings across line/page/section boundaries.
+- **MED** — a mid-word armor split (`PRIVAT\nE KEY`) evaded every
+  private-key scan surface (release-assurance red team) → zero-collapse
+  (`PRIVATEKEY`) pass everywhere, a rolling scan window in the streaming
+  reader, and a diff hunk de-prefix pass.
+- **MED** — `task_run` could stall past its timeout when a detached
+  grandchild held the stdio pipes open → pipe ends destroyed on kill and
+  the call settles on `exit`.
+- **LOW-MED** — suffix-anchored deny rules evaded by trailing whitespace/
+  control chars (`.env `, `HEAD:.env\t` — git object paths can spell names
+  fs paths can't) → trimmed-spelling deny check in `DenyPolicy`.
+- **LOW** — `\x1e`/`\x1f` in commit subjects could forge `git_log` records
+  → NUL separators + field sanitization; `task_run` output now gets the
+  same `<root>` path scrub as git/rg; `fs_office_text` reports
+  `sectionsFailed`; prototype-key task ids (`constructor`) fail closed as
+  `TASK_DENIED`.
+- Robustness: cumulative call deadlines for `fs_contact_sheet` (3×
+  `mediaTimeoutMs`) and `fs_pdf_page` (2×); `gitFileUniverse` falls back to
+  the honest directory walk on truncated `ls-files`; a failed PDFium init
+  no longer bricks subsequent calls; platform declared POSIX-only
+  (`os` field + `doctor` platform check).
+
 ## [0.1.0] — 2026-10-09
 
 First public release, under MIT. The entries below are the cumulative

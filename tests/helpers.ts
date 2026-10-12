@@ -31,6 +31,18 @@ export function makeLimits() {
     maxGitOutputBytes: 262_144,
     walkEntryCap: 50_000,
     walkDepthCap: 20,
+    maxMediaFileBytes: 32_000_000,
+    maxImagePixels: 40_000_000,
+    maxImageOutputBytes: 3_500_000,
+    mediaConcurrency: 2,
+    contactSheetMaxItems: 24,
+    archiveMaxMembers: 5_000,
+    archiveMaxEntryBytes: 32_000_000,
+    archiveMaxRatio: 200,
+    pdfMaxPagesRender: 4,
+    pdfMaxPagesText: 50,
+    pdfMaxRenderPixels: 6_250_000,
+    mediaTimeoutMs: 30_000,
   };
 }
 
@@ -103,3 +115,26 @@ export async function makeFixture(opts: { git?: boolean } = {}): Promise<Fixture
 export function cleanup(f: Fixture) {
   fs.rmSync(f.tmp, { recursive: true, force: true });
 }
+
+/** Wire the in-process server+client pair used by protocol-level tests. */
+export async function connectClient(f: Fixture, overrides: Partial<ReturnType<typeof makeLimits>> = {}) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { createServer } = await import("../src/server.js");
+  const { FsOps } = await import("../src/fsOps.js");
+  const { GitOps } = await import("../src/git.js");
+  const { TaskRunner } = await import("../src/tasks.js");
+  const { AuditLog } = await import("../src/audit.js");
+  const { gitEnv } = await import("../src/exec.js");
+  const cfg = { ...f.cfg, limits: { ...f.cfg.limits, ...overrides } };
+  const fsOps = new FsOps(f.index, f.policy, cfg.limits, gitEnv, 15_000);
+  const gitOps = new GitOps(15_000, 262_144, f.policy);
+  const tasks = new TaskRunner(f.index, f.cfg.tasks, cfg.limits);
+  const server = createServer({ cfg, index: f.index, policy: f.policy, fsOps, gitOps, tasks, audit: new AuditLog(null) });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await server.connect(st);
+  const client = new Client({ name: "media-test", version: "0.0.1" });
+  await client.connect(ct);
+  return client;
+}
+
