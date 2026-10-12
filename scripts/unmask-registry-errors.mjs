@@ -7,43 +7,36 @@
 // discarded before the CLI ever sees it. Run against the npm install tree.
 // Never run this in a real release job.
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-const NEEDLES = [
-  ["(body && body.error) ? ' - ' + body.error : ''", "body ? ' - ' + JSON.stringify(body) : ''"],
-  ['body && body.error ? ` - ${body.error}` : ""', 'body ? ` - ${JSON.stringify(body)}` : ""'],
+const FROM = "(body && body.error) ? ' - ' + body.error : ''";
+const TO = "body ? ' - ' + JSON.stringify(body) : ''";
+
+const npmRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+const prefix = execFileSync('npm', ['prefix', '-g'], { encoding: 'utf8' }).trim();
+const candidates = [
+  join(npmRoot, 'npm/node_modules/npm-registry-fetch/lib/errors.js'),
+  join(npmRoot, 'npm/node_modules/npm-registry-fetch/dist/errors.js'),
+  join(prefix, 'lib/node_modules/npm/node_modules/npm-registry-fetch/lib/errors.js'),
 ];
 
-const roots = [];
-try {
-  roots.push(execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim());
-} catch {}
-roots.push('/usr/local/lib/node_modules', '/opt/hostedtoolcache');
-
 let patched = 0;
-const seen = new Set();
-const walk = (dir, depth) => {
-  if (depth > 7 || seen.has(dir)) return;
-  seen.add(dir);
-  let entries;
-  try { entries = readdirSync(dir); } catch { return; }
-  for (const name of entries) {
-    const p = join(dir, name);
-    let st;
-    try { st = statSync(p); } catch { continue; }
-    if (st.isDirectory()) {
-      if (name === 'node_modules' || p.includes('npm-registry-fetch') || p.includes('/npm/')) walk(p, depth + 1);
-    } else if (p.includes('npm-registry-fetch') && name.endsWith('.js')) {
-      try {
-        const src = readFileSync(p, 'utf8');
-        let out = src;
-        for (const [from, to] of NEEDLES) out = out.split(from).join(to);
-        if (out !== src) { writeFileSync(p, out); patched++; console.log(`patched: ${p}`); }
-      } catch {}
-    }
+for (const p of [...new Set(candidates)]) {
+  if (!existsSync(p)) continue;
+  const src = readFileSync(p, 'utf8');
+  const out = src.split(FROM).join(TO);
+  if (out === src) {
+    console.log(`needle absent in ${p} — layout changed`);
+    continue;
   }
-};
-for (const r of roots) walk(r, 0);
-console.log(patched ? `unmask applied to ${patched} file(s)` : 'no needle found — npm-registry-fetch layout changed; inspect lib/errors.js manually');
+  writeFileSync(p, out);
+  patched++;
+  console.log(`patched: ${p}`);
+}
+if (!patched) {
+  console.log('no file patched; candidates checked:');
+  candidates.forEach((c) => console.log(`  ${existsSync(c) ? 'found' : 'missing'} ${c}`));
+  process.exit(1);
+}
