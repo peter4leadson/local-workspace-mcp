@@ -415,10 +415,10 @@ pnpm audit --prod            # dependency audit
 
 ## Release status
 
-Version 0.1.0 is published on npm as `local-workspace-mcp` and listed on
-the official MCP Registry as `io.github.peter4leadson/local-workspace-mcp`.
-**0.2.0 is a release candidate — not yet published**; see
-[CHANGELOG.md](CHANGELOG.md) for the release history.
+Version 0.2.0 is published on npm as `local-workspace-mcp` (SLSA
+provenance, OIDC trusted publishing) and listed on the official MCP
+Registry as `io.github.peter4leadson/local-workspace-mcp` — `latest`.
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
 A 0.2.0 release decision record is maintained in the repository at
 `docs/RELEASE-0.2.0-DECISION.md` (internal ledger — not shipped in the
 tarball; the frozen 0.1.0 record is `docs/RELEASE-PACKET.md`).
