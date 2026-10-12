@@ -141,3 +141,17 @@ process and is not authorized by this npm/MCP Registry release decision.
 Rollback plan if 0.2.0 must be withdrawn after publish: `npm deprecate`
 the version with a pointer, `dist-tag latest → 0.1.0`, registry entry
 remains versioned (0.1.0 stays `isLatest` until a republish marks 0.2.0).
+
+## Release execution (2026-10-11, owner-authorized)
+
+Branding applied: approved icon (dark navy field, white geometric corner
+brackets, cyan center square, no text) committed as
+`assets/local-workspace-mcp-icon-{512,128}.png`; `server.json` carries
+registry `icons` metadata pinned to the `v0.2.0` tag URL; README header
+references the icon. Stale pre-verification claims corrected: CHANGELOG
+and MULTIMODAL-SPEC now reflect the verified ChatGPT connector state.
+
+Sequence executed: branding commit → exact-SHA CI → `v0.2.0` tag on the
+final main commit → GitHub Release → `publish.yml` OIDC
+`npm stage publish` → owner npm 2FA approval on npmjs.com → MCP Registry
+0.2.0 publish via `mcp-publisher` (GitHub auth) → verification.
