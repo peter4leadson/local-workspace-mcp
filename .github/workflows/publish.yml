@@ -23,8 +23,13 @@ on:
     inputs:
       version:
         description: "Version to publish, e.g. 0.2.0. Run the workflow on the tagged release commit — package.json version must equal this, and the v<version> tag must point at the checkout SHA."
-        required: true
+        required: false
         type: string
+      diagnose:
+        description: "Run the read-only npm OIDC probe instead of publishing (diagnostics; publishes nothing)."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,7 +40,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Read-only OIDC handshake probe — temporary diagnostic. Runs only on
+  # dispatch with diagnose=true; publishes nothing. Must live in this file
+  # and the npm-release environment or the token exchange cannot match the
+  # trusted-publisher registration.
+  diagnose-oidc:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: npm-release
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "24"
+      - name: Probe npm trusted publishing
+        run: node scripts/diagnose-npm-oidc.mjs local-workspace-mcp
+
   publish:
+    if: github.event_name == 'release' || !inputs.diagnose
     runs-on: ubuntu-latest
     environment: npm-release # required-reviewers gate: owner approval before any publish step
     steps:
