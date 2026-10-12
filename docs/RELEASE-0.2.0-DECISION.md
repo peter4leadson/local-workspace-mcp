@@ -1,6 +1,6 @@
 # Release decision record — local-workspace-mcp 0.2.0
 
-Status: **RELEASE CANDIDATE — pending owner authorization** (2026-10-11).
+Status: **OWNER-AUTHORIZED RELEASE CANDIDATE — publication not yet executed** (2026-10-11).
 Not published, not tagged, not merged. This record is repository-internal
 and deliberately excluded from the npm tarball.
 
