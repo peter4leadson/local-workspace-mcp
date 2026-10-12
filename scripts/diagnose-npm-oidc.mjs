@@ -278,6 +278,22 @@ async function main() {
     console.log('  neither half blocks alone — trigger spans the boundary or needs full text');
   };
   if (readme) await bisect(lines, 0);
+
+  // Full-coverage scan: the binary descent only reports the FIRST trigger.
+  // Sweep the whole README in chunks to enumerate every blocked line.
+  section('10. full README trigger sweep');
+  const CHUNK = 40;
+  for (let i = 0; i < lines.length; i += CHUNK) {
+    const chunk = lines.slice(i, i + CHUNK);
+    const hit = await probeLines(chunk);
+    console.log(`chunk lines ${i}..${i + chunk.length - 1}: ${hit ? 'BLOCKED' : 'ok'}`);
+    if (!hit) continue;
+    for (const [j, l] of chunk.entries()) {
+      const lhit = await probeLines([l]);
+      if (lhit) console.log(`  TRIGGER line ${i + j}: ${l.slice(0, 160)}`);
+    }
+  }
+  console.log('sweep complete');
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
