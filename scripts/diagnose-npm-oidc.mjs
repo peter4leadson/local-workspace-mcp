@@ -155,6 +155,56 @@ async function main() {
       } catch (err) { console.log(`request failed: ${err.message}`); }
     }
   }
+
+  // The blocked body carries two things probes lacked: the Sigstore bundle
+  // (PEM certificate text — a classic WAF "credential in body" trigger) and
+  // npm's request headers. Test PEM content in a schema-invalid envelope,
+  // then replicate npm's header set with a synthetic body.
+  section('7. WAF bisect — PEM/Sigstore content and npm headers');
+  const pem = `-----BEGIN CERTIFICATE-----\n${'MIIB' .repeat(16)}fakecertmaterial${'AQ'.repeat(120)}\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\n${'MIIB'.repeat(160)}\n-----END CERTIFICATE-----`;
+  const dsse = JSON.stringify({ payloadType: 'application/vnd.in-toto+json', payload: b64(2048), signatures: [{ sig: b64(512), keyid: '' }], verificationMaterial: { x509CertificateChain: { certificates: [{ rawBytes: b64(1500) }] }, certificate: { rawBytes: b64(1500) } } });
+  for (const [label, padField] of [
+    ['PEM certificate text', { pad: pem }],
+    ['Sigstore-bundle-like JSON', { pad: dsse }],
+    ['provenance field shape', { attestations: [{ predicateType: 'https://slsa.dev/provenance/v1', bundle: JSON.parse(dsse) }] }],
+    ['versions+manifest, no attachments', { versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', dist: { tarball: 'https://x/p.tgz', integrity: 'sha512-x' } } } }],
+  ]) {
+    const payload = JSON.stringify({ name: PKG, ...padField });
+    console.log(`\n-- ${label} (${payload.length} bytes)`);
+    try {
+      const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: payload,
+      });
+      const text = await res.text();
+      const cf = /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text);
+      console.log(`status: ${res.status} | cloudflare-block-page: ${cf}`);
+      if (!cf) console.log(`app body: ${text.slice(0, 200)}`);
+    } catch (err) { console.log(`request failed: ${err.message}`); }
+  }
+
+  // npm-registry-fetch header set on a body that already passed bare — if this
+  // 403s, the trigger is a header (UA / accept / npm-* / referer), not content.
+  console.log('\n-- npm-header replica, minimal body');
+  const npmHeaders = {
+    ...auth,
+    'Content-Type': 'application/json',
+    Accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*',
+    'User-Agent': 'npm/11.21.0 node/v24.21.0 linux x64 workspaces/false',
+    'npm-session': crypto.randomUUID(),
+    'npm-command': 'stage-publish',
+    'npm-in-ci': 'true',
+    referer: 'stage publish local-workspace-mcp',
+    'Accept-Encoding': 'gzip,deflate',
+  };
+  try {
+    const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+      method: 'POST', headers: npmHeaders, body: JSON.stringify({ name: PKG, pad: b64(64 * 1024) }),
+    });
+    const text = await res.text();
+    const cf = /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text);
+    console.log(`status: ${res.status} | cloudflare-block-page: ${cf}`);
+    if (!cf) console.log(`app body: ${text.slice(0, 200)}`);
+  } catch (err) { console.log(`request failed: ${err.message}`); }
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
