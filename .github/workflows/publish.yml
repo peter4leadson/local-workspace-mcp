@@ -58,6 +58,18 @@ jobs:
           node-version: "24"
       - name: Probe npm trusted publishing
         run: node scripts/diagnose-npm-oidc.mjs local-workspace-mcp
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+        with:
+          run_install: false
+      - name: npm CLI matching the publish job (11.21.0)
+        run: npm_config_minimum_release_age=0 npm install -g npm@11.21.0 && npm --version
+      - name: Install + build (publish prerequisites)
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Unmask npm registry errors
+        run: node scripts/unmask-registry-errors.mjs
+      - name: Stage publish with the real error body visible
+        run: npm stage publish --access public --tag latest --loglevel verbose
+        continue-on-error: true # diagnostic run — capture output, don't gate on it
 
   publish:
     if: github.event_name == 'release' || !inputs.diagnose
