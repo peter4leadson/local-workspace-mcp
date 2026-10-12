@@ -241,6 +241,43 @@ async function main() {
       if (!cf) console.log(`app body: ${text.slice(0, 200)}`);
     } catch (err) { console.log(`request failed: ${err.message}`); }
   }
+
+  // CONFIRMED: the README embedded in `versions[].readme` trips the WAF
+  // (manifest alone passes; README alone blocks). Binary-search the README
+  // to isolate the minimal triggering span — informs whether a trivial docs
+  // rephrase unblocks the real npm stage publish.
+  section('9. README trigger bisect');
+  const post = async (body) => {
+    const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: PKG, versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', readme: body } } }),
+    });
+    const text = await res.text();
+    return /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text) || res.status === 403;
+  };
+  // bisect on line boundaries to keep spans meaningful
+  const lines = readme.split('\n');
+  const probeLines = async (arr) => post(arr.join('\n'));
+  const bisect = async (arr, lo) => {
+    if (arr.length <= 4) {
+      for (const [i, l] of arr.entries()) {
+        const hit = await probeLines([l]);
+        console.log(`  line ${lo + i}: ${hit ? 'BLOCKED' : 'ok'} | ${l.slice(0, 120)}`);
+      }
+      return;
+    }
+    const mid = Math.ceil(arr.length / 2);
+    const first = arr.slice(0, mid), second = arr.slice(mid);
+    const hitFirst = await probeLines(first);
+    console.log(`  lines ${lo}..${lo + mid - 1} (${first.join('\n').length}B): ${hitFirst ? 'BLOCKED' : 'ok'}`);
+    if (hitFirst) return bisect(first, lo);
+    const hitSecond = await probeLines(second);
+    console.log(`  lines ${lo + mid}..${lo + arr.length - 1} (${second.join('\n').length}B): ${hitSecond ? 'BLOCKED' : 'ok'}`);
+    if (hitSecond) return bisect(second, lo + mid);
+    console.log('  neither half blocks alone — trigger spans the boundary or needs full text');
+  };
+  if (readme) await bisect(lines, 0);
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
