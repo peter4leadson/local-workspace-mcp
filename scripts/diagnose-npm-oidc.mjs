@@ -205,6 +205,42 @@ async function main() {
     console.log(`status: ${res.status} | cloudflare-block-page: ${cf}`);
     if (!cf) console.log(`app body: ${text.slice(0, 200)}`);
   } catch (err) { console.log(`request failed: ${err.message}`); }
+
+  // Everything synthetic passes. The real body's remaining untested content:
+  // the embedded README + full manifest inside `versions`. This package's docs
+  // describe a security tool — traversal strings, .env, credential patterns —
+  // textbook WAF managed-rule triggers. Test real doc/manifest text.
+  section('8. WAF bisect — real manifest + README content');
+  const { readFileSync: rf } = await import('node:fs');
+  let manifest = {}, readme = '';
+  try { manifest = JSON.parse(rf('package.json', 'utf8')); } catch {}
+  try { readme = rf('README.md', 'utf8'); } catch {}
+  const realAttach = tgzIdx > -1 && process.argv[tgzIdx + 1]
+    ? { _attachments: { 'pkg.tgz': { data: rf(process.argv[tgzIdx + 1]).toString('base64') } } }
+    : {};
+  for (const [label, padField] of [
+    ['real manifest', { versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', ...manifest } } }],
+    ['real README', { versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', readme } } }],
+    ['manifest + README', { versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', ...manifest, readme } } }],
+    ['full replica (probe version)', {
+      _id: `${PKG}@0.0.0-probe`, name: PKG, 'dist-tags': { 'waf-probe': '0.0.0-probe' },
+      access: 'public',
+      versions: { '0.0.0-probe': { name: PKG, version: '0.0.0-probe', ...manifest, readme, dist: { tarball: 'https://x/pkg.tgz', integrity: 'sha512-x' } } },
+      ...realAttach,
+    }],
+  ]) {
+    const payload = JSON.stringify({ name: PKG, ...padField });
+    console.log(`\n-- ${label} (${payload.length} bytes)`);
+    try {
+      const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: payload,
+      });
+      const text = await res.text();
+      const cf = /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text);
+      console.log(`status: ${res.status} | cloudflare-block-page: ${cf}`);
+      if (!cf) console.log(`app body: ${text.slice(0, 200)}`);
+    } catch (err) { console.log(`request failed: ${err.message}`); }
+  }
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
