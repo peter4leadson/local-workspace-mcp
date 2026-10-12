@@ -124,7 +124,7 @@ Denied behavior is explicit, never silent:
 
 ```text
 fs_read {workspace:"myproj", path:".env"}              → ACCESS_DENIED  (or NOT_FOUND if absent)
-fs_read {workspace:"myproj", path:"../../etc/passwd"}  → OUTSIDE_ROOT
+fs_read {workspace:"myproj", path:"../../outside-root.txt"} → OUTSIDE_ROOT
 task_run {workspace:"myproj", taskId:"nuke"}           → TASK_DENIED    (valid id, not enabled)
 task_run {workspace:"myproj", taskId:"rm -rf /"}       → INVALID_ARGUMENT (malformed task id)
 git_show {workspace:"myproj", spec:"--exec"}           → INVALID_ARGUMENT

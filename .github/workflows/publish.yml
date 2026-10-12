@@ -66,9 +66,9 @@ jobs:
       - name: Pack the real tarball for the content probe
         run: npm pack --ignore-scripts >/dev/null && ls -la *.tgz
       - name: Probe npm trusted publishing (+ real-bytes WAF bisect)
-        run: node scripts/diagnose-npm-oidc.mjs local-workspace-mcp --with-tarball "$(ls *.tgz | head -1)"
+        run: node .github/scripts/diagnose-npm-oidc.mjs local-workspace-mcp --with-tarball "$(ls *.tgz | head -1)"
       - name: Unmask npm registry errors
-        run: node scripts/unmask-registry-errors.mjs
+        run: node .github/scripts/unmask-registry-errors.mjs
       - name: Stage publish with request headers visible (silly loglevel)
         # Filter out the tarball blob AND any auth/token material the silly
         # loglevel might print — the CLI's exchanged token differs from the
