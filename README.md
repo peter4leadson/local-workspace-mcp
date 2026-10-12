@@ -173,7 +173,7 @@ pure reads). `task_run` is the only tool with side effects.
 | Claude Code             | `claude mcp add local-workspace --scope user -- workspace-mcp serve --stdio`; confirm with `claude mcp list`                 | verified   |
 | Claude Desktop          | `mcpServers` entry in `claude_desktop_config.json`; restart app                                                              | configured |
 | Codex CLI               | `mcp_servers` stdio entry in `~/.codex/config.toml`                                                                          | supported  |
-| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); see the tunnel notes and cloud disclosure below this table | partial    |
+| ChatGPT / Responses API | OpenAI Secure MCP Tunnel (`openai/tunnel-client`, outbound-only); see the tunnel notes and cloud disclosure below this table | ChatGPT image verified; Responses untested |
 | MCP Inspector           | `scripts/inspector-smoke.sh` battery, 17 checks                                                                              | verified   |
 
 GUI hosts (Claude Desktop especially) spawn servers with a minimal PATH,
@@ -208,12 +208,13 @@ stdio command locally; no inbound network listener opens. (tunnel-client
 can optionally bind a loopback-only health endpoint — see OPERATIONS.)
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-Status is `partial`: the tunnel datapath is verified end-to-end
-(initialize + tool calls), but the hosted connector retains a cached
-tool catalog — after upgrading, re-save/reconnect the connector in
-ChatGPT settings or new tools may not appear. `image` content delivery
-to the ChatGPT model is unverified pending that refresh; every image
-tool also returns full text metadata.
+ChatGPT host validation (2026-10-11): after connector refresh, a live
+connection discovered all 23 tools and consumed a native `fs_image` image
+block. A synthetic visual canary was described from its pixels, independently
+of file metadata. PDF and Office tools are advertised, but their individual
+ChatGPT-side extraction/rendering paths have not yet been sampled. Future
+tool-schema updates may require another manual connector refresh; every image
+tool also returns metadata for hosts that do not expose visual content.
 
 Cloud disclosure: over the ChatGPT tunnel path, tool outputs — including
 image bytes and extracted document text — transit OpenAI's connector
