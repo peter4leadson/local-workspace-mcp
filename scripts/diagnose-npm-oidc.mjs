@@ -123,6 +123,38 @@ async function main() {
       else console.log(`html head: ${text.slice(0, 120).replace(/\s+/g, ' ')}`);
     } catch (err) { console.log(`request failed: ${err.message}`); }
   }
+
+  // Synthetic bodies all pass — isolate the REAL bytes. --with-tarball=<path>
+  // POSTs the actual packed tarball's base64 inside a schema-invalid envelope
+  // (no `versions`), so it can never create a stage. If this 403s while the
+  // synthetic blobs didn't, the trigger is byte-content, not shape or size.
+  const tgzIdx = process.argv.indexOf('--with-tarball');
+  if (tgzIdx > -1 && process.argv[tgzIdx + 1]) {
+    section('6. real tarball bytes in a schema-invalid envelope');
+    const { readFileSync } = await import('node:fs');
+    const real = readFileSync(process.argv[tgzIdx + 1]).toString('base64');
+    for (const [label, env] of [
+      ['raw tarball base64', { pad: real }],
+      ['attachments shape', { _attachments: { 'pkg.tgz': { data: real } } }],
+      // full publish-shape body minus `versions` — still schema-invalid
+      ['publish shape, no versions', {
+        _id: `${PKG}@0.0.0-probe`, name: PKG, 'dist-tags': { latest: '0.0.0-probe' },
+        access: 'public', _attachments: { 'p.tgz': { data: real, 'content-type': 'application/octet-stream', length: real.length } },
+      }],
+    ]) {
+      const payload = JSON.stringify({ name: PKG, ...env });
+      console.log(`\n-- ${label} (${payload.length} bytes)`);
+      try {
+        const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: payload,
+        });
+        const text = await res.text();
+        const cf = /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text);
+        console.log(`status: ${res.status} | cloudflare-block-page: ${cf}`);
+        console.log(cf ? `html head: ${text.slice(0, 120).replace(/\s+/g, ' ')}` : `app body: ${text.slice(0, 200)}`);
+      } catch (err) { console.log(`request failed: ${err.message}`); }
+    }
+  }
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
