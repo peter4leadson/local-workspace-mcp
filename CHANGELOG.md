@@ -100,6 +100,24 @@ fixed with a permanent regression test:
   no longer bricks subsequent calls; platform declared POSIX-only
   (`os` field + `doctor` platform check).
 
+### Fixed — release execution (2026-10-12)
+
+- README deny-policy demo now traverses to `../../outside-root.txt`
+  instead of `../../etc/passwd`: npm's registry edge (Cloudflare managed
+  rules) blocks publish bodies containing the LFI signature, which 403'd
+  `npm stage publish` before npm's backend saw the request. Same
+  demonstration, no signature.
+
+### Publication (2026-10-12, verified live)
+
+- npm `local-workspace-mcp@0.2.0` — `latest`, SLSA provenance attached,
+  staged via GitHub OIDC trusted publishing (stage-only permission) and
+  owner-approved with npm 2FA. `v0.2.0` → `9ac8660a`.
+- Official MCP Registry `io.github.peter4leadson/local-workspace-mcp`
+  `0.2.0` — `isLatest`, npm + stdio, icons pinned to the release tag.
+- Approved product icon under `assets/` (512/128 PNG); ChatGPT connector
+  unchanged (23 tools, existing tunnel, `fs_image` canary verified).
+
 ## [0.1.0] — 2026-10-09
 
 First public release, under MIT. The entries below are the cumulative

@@ -155,3 +155,47 @@ Sequence executed: branding commit → exact-SHA CI → `v0.2.0` tag on the
 final main commit → GitHub Release → `publish.yml` OIDC
 `npm stage publish` → owner npm 2FA approval on npmjs.com → MCP Registry
 0.2.0 publish via `mcp-publisher` (GitHub auth) → verification.
+
+## Publication outcome (2026-10-12, verified against live endpoints)
+
+**npm — PUBLISHED.** `local-workspace-mcp@0.2.0`, `latest → 0.2.0`,
+published 2026-10-12T01:27:56Z. Staged by GitHub Actions trusted
+automation (OIDC, no long-lived token); owner approved via npm 2FA
+(passkey) — stage id `2635167a-fb19-41d2-a806-c4109af07e5a`. SLSA
+provenance attestation attached (`dist.attestations`,
+`https://slsa.dev/provenance/v1`; Sigstore transparency log index
+`3218271138`). Fresh public install verified: `--version` 0.2.0,
+`doctor` ALL GREEN, 23/23 tools on stdio.
+
+**Release tag:** `v0.2.0` → `9ac8660ac51b5b526697e1d5213d5c44a7b77d3b`
+(moved twice before publication — once for the checkout `fetch-tags`
+defect, once for the README WAF fix; both moves preceded any public
+artifact, and the staged/published provenance attests this SHA).
+
+**npm edge-WAF incident (diagnosed, fixed):** `npm stage publish` was
+403'd not by npm authz but by npm's Cloudflare edge — the response body
+(unmasked via a npm-registry-fetch patch, trpc/trpc#7625 pattern) is an
+"Attention Required | Cloudflare" HTML page. A dispatch-gated OIDC probe
+in `publish.yml` bisected the trigger: token, endpoint, headers, body
+size, base64, real tarball, PEM/Sigstore shapes all pass; the publish
+body's embedded README plaintext trips the WAF, and a full line-level
+sweep found exactly one offending line — `../../etc/passwd` in the
+deny-policy demo (an LFI signature). Replaced with an equivalent
+`../../outside-root.txt` example in `9ac8660`; subsequent release run
+staged successfully. Diagnostic scripts live under `.github/scripts/`
+and are excluded from the published tarball.
+
+**MCP Registry — PUBLISHED (verified live).**
+`io.github.peter4leadson/local-workspace-mcp` version `0.2.0`,
+`isLatest: true` (0.1.0 demoted), npm `local-workspace-mcp@0.2.0`,
+stdio transport, `npx` runtime hint. `icons[]` published with both
+sizes; the 512px and 128px URLs are pinned to the `v0.2.0` tag and
+return HTTP 200 with the committed asset bytes. Published via
+`mcp-publisher` GitHub device auth — no long-lived registry credential.
+
+**ChatGPT connector:** existing tunnel-backed connection preserved
+(tunnel id `tunnel_6ac415e931a081918d481e7acb053a91`, single daemon,
+packaged binary child, Keychain-held restricted credential). 23-tool
+catalog and `fs_image` synthetic-canary verification stand as recorded
+above; approved icon assets uploaded by the owner through the supported
+app-management interface.
