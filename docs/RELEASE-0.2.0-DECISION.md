@@ -55,22 +55,26 @@ threat-model ledger: `docs/THREAT-MODEL.md`.
 | stdio MCP clients       | VERIFIED    | real wire-level smoke: 23 tools, byte-identical `image` block, correct `structuredContent`                                          |
 | MCP Inspector           | VERIFIED    | 16/17 battery (1 env-specific `task_list` skip); `fs_image` image block rendered                                                    |
 | Claude Code / Codex CLI | SUPPORTED   | stdio wiring per README; image consumption is host-model dependent (spec-native blocks)                                             |
-| ChatGPT via tunnel      | PENDING     | datapath verified (`initialize` 0.2.0 + `tools/call` forwarded, HTTP 200); connector catalog retains a 14-tool snapshot — see below |
+| ChatGPT via tunnel      | VERIFIED    | Live ChatGPT 23/23-tool discovery and native `fs_image` synthetic canary visually interpreted (2026-10-11); PDF/Office individual samples not yet run in ChatGPT |
 | Windows                 | UNSUPPORTED | `os` field + `doctor` platform check; POSIX kill/`/dev/null` semantics have no equivalent                                           |
 
-### ChatGPT connector state — PENDING_CONNECTOR_REFRESH
+### ChatGPT connector state — VERIFIED (2026-10-11)
 
-The OpenAI connector backend retains a stale 14-tool catalog. Local
-evidence: `tools/list` is never forwarded to the child in this flow; the
-daemon skips stdio startup probing; `notifications/tools/list_changed`
-(emitted since `3a81d09`) is not acted on by the backend. The tunnel
-datapath itself is verified healthy (0.2.0 child, forwarded calls succeed).
+The previously cached 14-tool snapshot was refreshed. In a live ChatGPT
+conversation the connected tool registry exposed all 23 tools, including
+`fs_image`, `fs_pdf_page`, and `fs_office_text`. A real `workspace_roots`
+call succeeded. An `fs_image` call returned a native `image/png` MCP image
+block and structured metadata from the synthetic
+`auto-local-workspace-mcp-5ae5945/.tmp-e2e/canary-7f3.png` fixture:
+512×512 pixels, 20,122 bytes, SHA-256
+`c54e65d2c45e3954e3ae9f47d9299b2d52bbf338db3b468dec9bd93f71b6e458`.
+The ChatGPT model independently identified the pixels: magenta field, cyan
+ring, lime triangle, white “47” and black “QX”. Those visual elements were
+not contained in file metadata. **ChatGPT native image delivery: PASS.**
 
-User-facing recovery: ChatGPT → Settings → Connectors → "Local Workspace"
-→ edit/re-save (or toggle off/on); if the catalog remains stale, remove
-and re-create the connector. **No ChatGPT multimodal acceptance is claimed
-until 23 tools are exposed and a synthetic `fs_image` canary is consumed
-as actual visual input.**
+The tool registry also exposes PDF and OOXML operations; individual
+ChatGPT-side rendering/extraction samples remain **NOT TESTED**. Tool-catalog
+refresh may still be required after future tool-schema changes.
 
 ## Supply chain
 
@@ -126,9 +130,13 @@ tested; `src/cli.ts` — `init-config` refusal names the recovery action.
 
 ## Decision
 
-**HOLD pending one item:** owner authorization to tag/publish. ChatGPT E2E
-is **not** a ship-blocker — it is a documented host-compat limitation,
-not a server defect.
+**OWNER AUTHORIZATION (2026-10-11):** The owner requested the 0.2.0
+publication update following creation of a new ChatGPT plugin icon. The
+release is approved to proceed through controlled merge, exact-main-SHA CI,
+verified `v0.2.0` tag and npm OIDC staged publication. The staged npm version
+still requires the owner's account-side 2FA approval; no tool or agent may
+bypass that gate. A public ChatGPT plugin-directory submission is a separate
+process and is not authorized by this npm/MCP Registry release decision.
 
 Rollback plan if 0.2.0 must be withdrawn after publish: `npm deprecate`
 the version with a pointer, `dist-tag latest → 0.1.0`, registry entry
