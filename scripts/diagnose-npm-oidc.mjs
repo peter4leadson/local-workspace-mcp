@@ -92,6 +92,37 @@ async function main() {
     }));
     if (body) console.log(`error body: ${JSON.stringify(body, null, 2).slice(0, 800)}`);
   } catch (err) { console.log(`request failed: ${err.message}`); }
+
+  // The real publish 403s with a Cloudflare "Attention Required" HTML page —
+  // i.e. npm's edge WAF, not the registry app (an app authz failure would be
+  // JSON like the 400 above). Isolate whether the trigger is body SIZE or
+  // body CONTENT by POSTing schema-invalid bodies of increasing size, first
+  // with plain-text padding then with a base64-looking blob (tarball/_attachments
+  // are base64 in the real payload). An invalid schema body can never create a
+  // stage — worst case npm returns a 400/422, which is what we want to see.
+  section('5. WAF isolation — stage POST body size vs content');
+  const b64 = (n) => Buffer.alloc(n).toString('base64');
+  for (const [label, padField] of [
+    ['1KB text pad', { pad: 'x'.repeat(1024) }],
+    ['64KB text pad', { pad: 'x'.repeat(64 * 1024) }],
+    ['256KB text pad', { pad: 'x'.repeat(256 * 1024) }],
+    ['64KB base64 blob', { pad: b64(48 * 1024) }],
+    ['256KB base64 blob', { pad: b64(192 * 1024) }],
+    ['attachments-shaped 256KB', { _attachments: { 'a.tgz': { data: b64(192 * 1024) } } }],
+  ]) {
+    const payload = JSON.stringify({ name: PKG, ...padField });
+    console.log(`\n-- ${label} (${payload.length} bytes): POST /-/stage/package/${ESCAPED}`);
+    try {
+      const res = await fetch(`${REGISTRY}/-/stage/package/${ESCAPED}`, {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: payload,
+      });
+      const text = await res.text();
+      const cf = /Attention Required|cloudflare|cf-ray|Just a moment/i.test(text);
+      console.log(`status: ${res.status} ${res.statusText} | cloudflare-block-page: ${cf}`);
+      if (!cf) console.log(`app body: ${text.slice(0, 300)}`);
+      else console.log(`html head: ${text.slice(0, 120).replace(/\s+/g, ' ')}`);
+    } catch (err) { console.log(`request failed: ${err.message}`); }
+  }
 }
 
 main().catch((err) => console.log(`probe aborted: ${err.stack}`));
