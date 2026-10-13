@@ -131,13 +131,32 @@ at that tunnel. The notes below assume `<alias>` names that profile.
   `<alias>` names the configured tunnel profile). Status:
   `tunnel-client runtimes status <alias> --json` (expect
   `process_running/healthy/ready`).
+- Persistence (macOS): a per-user LaunchAgent
+  `io.github.peter4leadson.local-workspace-mcp.tunnel` keeps the managed
+  runtime alive across login, app restarts, process death, network
+  interruptions, and sleep/wake. Install once:
+  `scripts/launchd/install.sh` (idempotent; `--refresh-secret` after key
+  rotation). Remove with `scripts/launchd/uninstall.sh`
+  (`--stop-runtime` also stops the daemon). Full chain audit:
+  `scripts/launchd/health-check.sh`. See
+  [Persistence](#persistence-macos-launchd) below.
 - Health surfaces: `/healthz` `/readyz` `/metrics` `/ui` on the health
   listener (`--health.listen-addr 127.0.0.1:<port>`; loopback only).
-- Credentials: `CONTROL_PLANE_API_KEY` via env or `file:` ref — never in the
-  profile YAML, never committed. `tunnel_id` in the profile is not a secret.
-- Recovery: if the daemon dies, `runtimes status` shows unhealthy →
-  `runtimes connect` again; the MCP server itself needs no restart (it is
-  spawned per request-path by tunnel-client).
+- Credentials: the runtime API key is stored in the macOS keychain and
+  materialized by `install.sh` into a 0600 file at
+  `~/Library/Application Support/tunnel-client/secrets/control-plane-api-key`;
+  the profile references it via `file:` — never inline, never committed,
+  never in the plist, agent environment, or logs. `tunnel_id` in the
+  profile is not a secret. (`env:` refs also work interactively but put
+  the key in the daemon's environment; the `file:` ref is the installed
+  posture.)
+- Recovery: the LaunchAgent reconciles every 60 s — dead processes are
+  restarted immediately, wedged-but-alive runtimes earn a controlled
+  restart (stop → connect) only after several consecutive unhealthy
+  checks so transient network/platform outages ride out in
+  tunnel-client's own backoff. Manual equivalent: `runtimes status`
+  shows unhealthy → `runtimes connect` again; the MCP server itself
+  needs no restart (it is spawned per request-path by tunnel-client).
 - Keep the daemon running for connector discovery and every ChatGPT call.
 
 ### Persistence (macOS launchd)
@@ -162,7 +181,15 @@ scripts/launchd/uninstall.sh --stop-runtime   # …and stop the runtime too
   recovery needs no admin key and can never create a replacement tunnel.
   A second instance on the same tunnel ID is never started: a mkdir lock
   serializes manual runs against the agent, live status is read before
-  every action, and a restart always stops the old runtime first.
+  every action, and a restart always stops the old runtime first — if a
+  suspended/wedged daemon survives `runtimes stop`, it is resumed and
+  force-killed before the replacement connects.
+- Coverage: macOS restart/login (RunAtLoad), ChatGPT or Codex app
+  restarts (clients only consume the tunnel; nothing local to restart),
+  tunnel process termination (next tick), network drops (transient
+  tolerance + daemon backoff), sleep/wake (missed intervals fire on
+  wake), and repeated `install.sh` runs (byte-identical plist, single
+  agent, single daemon, single alias).
 - Credentials: the runtime API key lives in the login keychain
   (`tunnel-client-control-plane`). `install.sh` materializes it once into
   a 0600 file (`~/Library/Application Support/tunnel-client/secrets/`)

@@ -89,6 +89,32 @@ runtime_ready() {
     && [ "$(field "$st" '.ready')" = "true" ]
 }
 
+daemon_pids() {
+  pgrep -f "tunnel-client run --profile-dir $PROFILE_DIR --profile $PROFILE( |$)" 2>/dev/null || true
+}
+
+# Stop the managed runtime, then guarantee no `tunnel-client run` for this
+# profile survives: a suspended or wedged daemon can outlive `runtimes stop`
+# and would keep the runtime lock, making the next `connect` fail. Resume
+# (SIGCONT unblocks a stopped process so SIGKILL can land), then SIGKILL.
+stop_runtime() {
+  local pids pid waited
+  "$TUNNEL_CLIENT" runtimes stop "$ALIAS" >/dev/null 2>&1
+  sleep "$STOP_SETTLE_S"
+  pids="$(daemon_pids)"
+  [ -z "$pids" ] && return 0
+  log "runtime process(es) survived runtimes stop ($pids) — force-killing"
+  for pid in $pids; do kill -CONT "$pid" 2>/dev/null || true; done
+  for pid in $pids; do kill -9 "$pid" 2>/dev/null || true; done
+  waited=0
+  while [ $waited -lt 10 ]; do
+    [ -z "$(daemon_pids)" ] && return 0
+    sleep 1; waited=$((waited + 1))
+  done
+  log "ERROR: tunnel-client run processes still alive after SIGKILL"
+  return 1
+}
+
 connect_runtime() {
   local rc waited st tunnel_id
 
@@ -163,14 +189,14 @@ main() {
       return 0
     fi
     log "runtime unhealthy for $n consecutive checks — controlled restart"
-    "$TUNNEL_CLIENT" runtimes stop "$ALIAS" >/dev/null 2>&1
-    sleep "$STOP_SETTLE_S"
+    stop_runtime
     if connect_runtime; then write_counter 0; return 0; fi
     return 1
   fi
 
-  # No live process: restart immediately.
+  # No live process: clean any stale daemon holding the lock, then start.
   log "no running runtime — starting managed runtime"
+  stop_runtime
   if connect_runtime; then write_counter 0; return 0; fi
   return 1
 }

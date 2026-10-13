@@ -53,7 +53,7 @@ else
 fi
 
 note "runtime process cardinality"
-n_daemons="$(pgrep -fl "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS" 2>/dev/null | wc -l | tr -d ' ')"
+n_daemons="$(pgrep -fl "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS( |\$)" 2>/dev/null | wc -l | tr -d ' ')"
 [ "$n_daemons" = "1" ] && ok "exactly one tunnel-client run process" \
   || bad "expected 1 tunnel-client run process, found $n_daemons"
 
