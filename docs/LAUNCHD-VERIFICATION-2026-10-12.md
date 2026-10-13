@@ -1,0 +1,79 @@
+# Persistence verification — local-workspace tunnel (2026-10-12)
+
+Exact-SHA evidence for the launchd persistence + self-healing setup that
+keeps the ChatGPT-facing Local Workspace MCP tunnel alive with no manual
+commands.
+
+## Identity
+
+| Item | Value |
+|---|---|
+| Implementation commit | `a1c55e311356ebfddf419faae30885ed8b65939a` (`feat/launchd-persistence`) |
+| LaunchAgent label | `io.github.peter4leadson.local-workspace-mcp.tunnel` |
+| Plist | `~/Library/LaunchAgents/io.github.peter4leadson.local-workspace-mcp.tunnel.plist` |
+| LaunchAgent state | bootstrapped in `gui/501`, `enabled`, `RunAtLoad`, `StartInterval=60` |
+| Tunnel alias | `local-workspace` (existing; **not** recreated) |
+| Tunnel ID | `tunnel_6ac415e931a081918d481e7acb053a91` (unchanged; alias record `Peter Local Workspace`) |
+| tunnel-client | `0.0.15+a390c168` at `~/.local/bin/tunnel-client` |
+| workspace-mcp | `0.2.0` at `~/.local/bin/workspace-mcp` |
+| Runtime command | `tunnel-client run --profile-dir ~/.config/tunnel-client --profile local-workspace` (managed, PPID 1) |
+| Credential | `CONTROL_PLANE_API_KEY` ← macOS keychain item `tunnel-client-control-plane` (acct `petercbennett`), env-only at connect time |
+
+## Health at verification time
+
+`tunnel-client runtimes status local-workspace --json`:
+`process_running=true, healthy=true, ready=true`,
+`health_url=http://127.0.0.1:55029/healthz` (loopback, ephemeral port).
+`/healthz` → `live`, `/readyz` → `ready`.
+
+`scripts/launchd/health-check.sh` → **ALL GREEN**:
+agent registered · runtime triple-true · `workspace-mcp doctor` green ·
+MCP stdio probe: `initialize → local-workspace-mcp 0.2.0`,
+`tools/list → 23 tools`, `fs_image` / `fs_pdf_page` / `fs_office_text`
+advertised, `workspace_roots` (137 roots), `fs_list` + `git_status`
+succeed on the `onramp` workspace.
+
+## Recovery test matrix
+
+| # | Scenario | Method | Result |
+|---|---|---|---|
+| A | Clean launch at login | `runtimes stop` + `launchctl bootout`, then `bootstrap` (simulates reboot+login) | **PASS** — RunAtLoad pass at 20:54:49, runtime ready 20:54:55 (~6 s end-to-end) |
+| B | Codex Desktop restart | structural | **PASS** — managed `tunnel-client run` has PPID 1 (launchd); no app process tree can kill it |
+| C | ChatGPT app/platform restart | structural | **PASS** — same; connector lives control-plane-side, tunnel polls `api.openai.com` continuously |
+| D | tunnel process termination | `kill 14207` | **PASS** — reconcile pass at 20:50:43 detected dead runtime, connected, ready after 5 s (new PID 14491, same tunnel ID) |
+| E | Network interruption | evidence + design | **Documented** — tunnel-client's own backoff already self-heals real outages (log 19:40:35 `poll timed out; backing off` → 19:41:06 `poller recovered; polling operational`). Reconcile tolerates 4 consecutive unhealthy checks before a controlled restart, so transient outages never churn the runtime |
+| F | Mac sleep/wake | evidence + design | **Documented** — same log shows a real suspend gap followed by in-process recovery; if the process dies during sleep (as it did between 19:41 and 20:46), the 60 s interval restarts it on wake — the exact path proven in row D. A live `pmset sleepnow` test was not run: scheduled RTC wake requires root and a stranded sleep state would block this session |
+| G | Repeated setup execution | `install.sh` run 3× | **PASS** — plist rewritten deterministically, single agent reloaded, no duplicates |
+| H | No duplicate processes/tunnels | `ps`, `launchctl print`, `runtimes list` | **PASS** — exactly 1 `tunnel-client run` process, 1 LaunchAgent, 1 plist, 1 alias, 1 tunnel ID |
+
+## How recovery works (deterministic)
+
+`reconcile.sh` every 60 s reads `runtimes status <alias> --json`:
+
+- `process_running + healthy + ready` → no-op (~0.3 s, verified).
+- `process_running=false` → immediate `runtimes connect` with
+  `--tunnel-id` resolved from the alias record (no admin CRUD required;
+  a replacement tunnel can never be created). Polls until ready or 60 s.
+- alive but not healthy/ready → transient counter; restart only after 4
+  consecutive failures, always `stop` before `connect` — never a second
+  instance on the same tunnel ID.
+
+## Rollback
+
+```sh
+scripts/launchd/uninstall.sh                  # remove persistence; runtime keeps running
+scripts/launchd/uninstall.sh --stop-runtime   # also stop the managed runtime
+```
+
+Removes the plist and boots out the agent. Alias, remote tunnel, keychain
+item, and logs are untouched — the machine returns to the previous
+manual `runtimes connect` state.
+
+## Security notes
+
+- No secrets in the plist, scripts, or logs; the control-plane key exists
+  only in the keychain and the runtime process environment.
+- `workspace-mcp` security controls unchanged: authorized roots only,
+  deny policy intact (`policy.selftest` 9/9 inside `doctor`), no
+  unrestricted shell (`task_run` allowlist only), audit log untouched.
+- Health listener bound to `127.0.0.1` on an ephemeral port.
