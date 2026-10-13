@@ -10,6 +10,12 @@
 # Exit contract:
 #   0 = runtime is, or was brought to, process_running + healthy + ready
 #   1 = reconciliation failed (detail on stdout; launchd captures it to the log)
+#
+# Secrets: the runtime API key is referenced from the tunnel profile as a
+# `file:` ref (0600, under Application Support). No secret is read, exported,
+# logged, or placed on any command line by this script. Re-asserting the
+# `file:` ref on every connect also keeps the profile from drifting back to
+# an `env:` ref when `runtimes connect` regenerates it.
 
 set -u
 
@@ -24,18 +30,20 @@ MCP_COMMAND="/Users/petercbennett/.local/bin/workspace-mcp serve --stdio"
 PROFILE="local-workspace"
 PROFILE_DIR="/Users/petercbennett/.config/tunnel-client"
 ADMIN_PROFILE="default"
-KEYCHAIN_SERVICE="tunnel-client-control-plane"
-KEYCHAIN_ACCOUNT="petercbennett"
+SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
+API_KEY_REF="file:$SECRET_FILE"
 JQ="/usr/bin/jq"
 
 STATE_DIR="$HOME/Library/Application Support/local-workspace-mcp"
 STATE_FILE="$STATE_DIR/reconcile.state"
+LOCK_DIR="$STATE_DIR/reconcile.lock"
 
 # Consecutive unhealthy-but-alive checks tolerated before a controlled
 # restart. At the 60 s StartInterval this is ~4 minutes — long enough for
 # tunnel-client's own backoff to ride out transient network/platform
-# outages, short enough to recover a wedged process.
-MAX_TRANSIENT_CHECKS=4
+# outages, short enough to recover a wedged process. Override via
+# LOCAL_WORKSPACE_MAX_TRANSIENT_CHECKS (tests use a smaller value).
+MAX_TRANSIENT_CHECKS="${LOCAL_WORKSPACE_MAX_TRANSIENT_CHECKS:-4}"
 READY_WAIT_S=60
 STOP_SETTLE_S=2
 
@@ -52,6 +60,28 @@ read_counter() {
 }
 write_counter() { printf '%s' "$1" > "$STATE_FILE"; }
 
+# Single-instance guard: launchd does not overlap runs of one job, but a
+# manual invocation can race the agent. mkdir is atomic; a stale lock older
+# than one reconcile window is taken over.
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+    return 0
+  fi
+  local mtime now
+  mtime="$(stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)"
+  now="$(date +%s)"
+  if [ $((now - mtime)) -gt 180 ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+      log "took over stale reconcile lock"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 runtime_ready() {
   local st="$1"
   [ "$(field "$st" '.process_running')" = "true" ] \
@@ -60,7 +90,12 @@ runtime_ready() {
 }
 
 connect_runtime() {
-  local key rc waited st tunnel_id
+  local rc waited st tunnel_id
+
+  [ -r "$SECRET_FILE" ] || {
+    log "ERROR: runtime API key file missing/unreadable: $SECRET_FILE (run scripts/launchd/install.sh)"
+    return 1
+  }
 
   # Resolve the existing tunnel ID from the local alias record and attach to
   # it explicitly. Connecting with --tunnel-id requires no admin CRUD
@@ -73,13 +108,6 @@ connect_runtime() {
     return 1
   fi
 
-  if ! key="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null)"; then
-    log "ERROR: CONTROL_PLANE_API_KEY not retrievable from keychain (service=$KEYCHAIN_SERVICE account=$KEYCHAIN_ACCOUNT)"
-    return 1
-  fi
-  export CONTROL_PLANE_API_KEY="$key"
-  unset key
-
   log "connect: starting managed runtime (alias=$ALIAS tunnel_id=$tunnel_id)"
   "$TUNNEL_CLIENT" runtimes connect \
     --alias "$ALIAS" \
@@ -87,9 +115,9 @@ connect_runtime() {
     --profile "$PROFILE" \
     --profile-dir "$PROFILE_DIR" \
     --mcp-command "$MCP_COMMAND" \
-    --tunnel-id "$tunnel_id" >/dev/null 2>&1
+    --tunnel-id "$tunnel_id" \
+    --runtime-api-key "$API_KEY_REF" >/dev/null 2>&1
   rc=$?
-  unset CONTROL_PLANE_API_KEY
   if [ $rc -ne 0 ]; then
     log "ERROR: runtimes connect exited $rc"
     return 1
@@ -109,6 +137,8 @@ connect_runtime() {
 }
 
 main() {
+  acquire_lock || return 0
+
   local st
   st="$("$TUNNEL_CLIENT" runtimes status "$ALIAS" --json 2>/dev/null)"
   if ! printf '%s' "$st" | "$JQ" -e . >/dev/null 2>&1; then

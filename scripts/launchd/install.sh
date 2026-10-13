@@ -4,11 +4,19 @@
 # process death, network interruptions, and sleep/wake.
 #
 # Idempotent: re-running replaces the plist byte-for-byte, reloads the agent,
-# and reconciles the runtime. It creates no duplicate agents, processes,
-# tunnels, or listeners. Reuses the existing `local-workspace` alias and its
-# tunnel ID; it never creates tunnels.
+# re-asserts the profile `file:` API-key reference, and reconciles the
+# runtime. It creates no duplicate agents, processes, tunnels, or listeners.
+# Reuses the existing `local-workspace` alias and its tunnel ID; it never
+# creates tunnels.
 #
-# Usage: scripts/launchd/install.sh
+# Secret model: the runtime API key lives in the macOS keychain (service
+# `tunnel-client-control-plane`). install.sh materializes it once into a
+# 0600 file under Application Support and the tunnel profile references it
+# via `file:` — so launchd needs no keychain ACL prompt, no secret is ever
+# placed in the plist, agent environment, or logs, and `runtimes connect`
+# keeps the `file:` ref instead of reverting to `env:`.
+#
+# Usage: scripts/launchd/install.sh [--refresh-secret]
 
 set -euo pipefail
 
@@ -25,6 +33,10 @@ TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
 WORKSPACE_MCP="/Users/petercbennett/.local/bin/workspace-mcp"
 KEYCHAIN_SERVICE="tunnel-client-control-plane"
 KEYCHAIN_ACCOUNT="petercbennett"
+SECRET_DIR="$HOME/Library/Application Support/tunnel-client/secrets"
+SECRET_FILE="$SECRET_DIR/control-plane-api-key"
+API_KEY_REF="file:$SECRET_FILE"
+PROFILE_FILE="$HOME/.config/tunnel-client/$ALIAS.yaml"
 INTERVAL_S=60
 
 fail() { echo "install: ERROR: $*" >&2; exit 1; }
@@ -34,21 +46,51 @@ fail() { echo "install: ERROR: $*" >&2; exit 1; }
 [ -x "$TUNNEL_CLIENT" ] || fail "tunnel-client missing: $TUNNEL_CLIENT"
 [ -x "$WORKSPACE_MCP" ] || fail "workspace-mcp missing: $WORKSPACE_MCP"
 [ -x /usr/bin/jq ] || fail "/usr/bin/jq missing (needed by reconcile)"
-[ -f "$HOME/.config/tunnel-client/$ALIAS.yaml" ] \
+[ -f "$PROFILE_FILE" ] \
   || fail "tunnel profile missing: ~/.config/tunnel-client/$ALIAS.yaml"
 
 "$TUNNEL_CLIENT" runtimes list --json 2>/dev/null \
   | /usr/bin/jq -e --arg a "$ALIAS" '.aliases[] | select(.alias == $a)' >/dev/null \
   || fail "alias '$ALIAS' not registered — create it once via tunnel-client runtimes create"
 
-security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w >/dev/null 2>&1 \
-  || fail "CONTROL_PLANE_API_KEY not in keychain (service=$KEYCHAIN_SERVICE account=$KEYCHAIN_ACCOUNT)"
+# --- secret file (keychain → 0600 file → profile `file:` ref) ---------------
+if [ "${1:-}" = "--refresh-secret" ] || [ ! -s "$SECRET_FILE" ]; then
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w >/dev/null 2>&1 \
+    || fail "CONTROL_PLANE_API_KEY not in keychain (service=$KEYCHAIN_SERVICE account=$KEYCHAIN_ACCOUNT)"
+  mkdir -p "$SECRET_DIR"
+  chmod 700 "$SECRET_DIR"
+  umask 077
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w > "$SECRET_FILE" \
+    || fail "could not write $SECRET_FILE"
+  chmod 600 "$SECRET_FILE"
+  echo "install: secret materialized from keychain → $SECRET_FILE (0600)"
+else
+  [ -r "$SECRET_FILE" ] || fail "secret file unreadable: $SECRET_FILE"
+  echo "install: secret file present (0600) — use --refresh-secret after key rotation"
+fi
+
+# Assert the profile carries the `file:` ref. `runtimes connect` rewrites
+# the profile on every connect, so reconcile.sh re-asserts the ref via
+# --runtime-api-key; this line covers manual `tunnel-client run` starts.
+/usr/bin/python3 - "$PROFILE_FILE" "$API_KEY_REF" <<'PY' || fail "could not pin api_key file: ref in profile"
+import re, sys
+path, ref = sys.argv[1], sys.argv[2]
+src = open(path).read()
+new, n = re.subn(r'"api_key":\s*"[^"]*"', '"api_key": "%s"' % ref, src, count=1)
+if n != 1:
+    sys.exit(1)
+if new != src:
+    open(path, "w").write(new)
+    print("install: profile api_key pinned to file: ref")
+else:
+    print("install: profile api_key already file: ref")
+PY
 
 TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json | /usr/bin/jq -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id')"
 
 mkdir -p "$PLIST_DIR" "$LOG_DIR" "$STATE_DIR"
 
-# --- plist (no secrets — the key never leaves the keychain-to-env path) ------
+# --- plist (no secrets — the key is a file: ref, never an env value) --------
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,8 +125,9 @@ chmod 644 "$PLIST"
 
 # --- (re)load ---------------------------------------------------------------
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
-launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
-launchctl bootstrap "$DOMAIN" "$PLIST" \
+launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null \
+  || { launchctl enable "$DOMAIN/$LABEL" 2>/dev/null || true
+       launchctl bootstrap "$DOMAIN" "$PLIST"; } \
   || fail "launchctl bootstrap failed for $LABEL"
 
 # --- verify ------------------------------------------------------------------

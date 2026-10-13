@@ -160,13 +160,17 @@ scripts/launchd/uninstall.sh --stop-runtime   # …and stop the runtime too
   network/platform outages) before a controlled stop→connect restart.
 - Reconnects bind `--tunnel-id` resolved from the local alias record, so
   recovery needs no admin key and can never create a replacement tunnel.
-  A second instance on the same tunnel ID is never started: the script
-  reads live status before every action and always stops the old runtime
-  before launching a replacement.
-- `CONTROL_PLANE_API_KEY` is read from the login keychain
-  (`security find-generic-password`, item `tunnel-client-control-plane`)
-  into the environment only at connect time. No secret is stored in the
-  plist, the scripts, or the logs.
+  A second instance on the same tunnel ID is never started: a mkdir lock
+  serializes manual runs against the agent, live status is read before
+  every action, and a restart always stops the old runtime first.
+- Credentials: the runtime API key lives in the login keychain
+  (`tunnel-client-control-plane`). `install.sh` materializes it once into
+  a 0600 file (`~/Library/Application Support/tunnel-client/secrets/`)
+  and the profile references it via `file:` — re-asserted by
+  `--runtime-api-key` on every connect so the ref cannot drift back to
+  `env:`. No secret is placed in the plist, the agent environment, daemon
+  argv, or the logs. `install.sh --refresh-secret` re-materializes after
+  key rotation.
 - The managed `tunnel-client run` process is parented to launchd (PPID 1),
   so Codex Desktop and ChatGPT restarts cannot affect it.
 - Logs: `~/Library/Logs/local-workspace-mcp/reconcile{,.error}.log`;

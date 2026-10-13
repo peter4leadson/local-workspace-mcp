@@ -17,6 +17,9 @@ DOMAIN="gui/$(id -u)"
 TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
 WORKSPACE_MCP="/Users/petercbennett/.local/bin/workspace-mcp"
 JQ="/usr/bin/jq"
+SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
+PROFILE_FILE="$HOME/.config/tunnel-client/$ALIAS.yaml"
+GIT_WORKSPACE_HINT="agent-tools"
 EXPECTED_TOOLS=23
 REQUIRED_MEDIA="fs_image fs_pdf_page fs_office_text"
 
@@ -28,8 +31,9 @@ note() { echo "---- $1"; }
 note "launchd agent"
 if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
   ok "agent $LABEL registered"
-  state="$(launchctl print "$DOMAIN/$LABEL" | grep -E '^\s*state =' | awk '{print $3}')"
-  echo "     state=${state:-unknown}"
+  state="$(launchctl print "$DOMAIN/$LABEL" | sed -n 's/^[[:space:]]*state = //p' | head -1)"
+  lastrc="$(launchctl print "$DOMAIN/$LABEL" | sed -n 's/^[[:space:]]*last exit code = //p' | head -1)"
+  echo "     state=${state:-unknown} last_exit=${lastrc:-?}"
 else
   bad "agent $LABEL not registered — run scripts/launchd/install.sh"
 fi
@@ -48,6 +52,25 @@ else
   bad "runtimes status returned no JSON"
 fi
 
+note "runtime process cardinality"
+n_daemons="$(pgrep -fl "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS" 2>/dev/null | wc -l | tr -d ' ')"
+[ "$n_daemons" = "1" ] && ok "exactly one tunnel-client run process" \
+  || bad "expected 1 tunnel-client run process, found $n_daemons"
+
+note "credential posture"
+if [ -f "$SECRET_FILE" ]; then
+  perms="$(stat -f %Lp "$SECRET_FILE")"
+  [ "$perms" = "600" ] && ok "secret file mode 600" || bad "secret file mode $perms (want 600)"
+else
+  bad "secret file missing: $SECRET_FILE"
+fi
+grep -q "\"api_key\": \"file:" "$PROFILE_FILE" 2>/dev/null \
+  && ok "profile api_key is a file: ref" \
+  || bad "profile api_key is not a file: ref (env: refs leak via process env)"
+n_leak="$(pgrep -fl "^$TUNNEL_CLIENT run" | grep -c "sk-" || true)"
+[ "$n_leak" = "0" ] && ok "no API key in daemon argv" \
+  || bad "API key material visible in daemon argv ($n_leak process lines)"
+
 note "workspace-mcp doctor"
 if "$WORKSPACE_MCP" doctor >/dev/null 2>&1; then
   ok "workspace-mcp doctor all green"
@@ -56,10 +79,11 @@ else
 fi
 
 note "MCP stdio probe (tools/catalog + calls)"
-/usr/bin/python3 - "$WORKSPACE_MCP" "$EXPECTED_TOOLS" $REQUIRED_MEDIA <<'PY'
-import json, os, subprocess, sys
+/usr/bin/python3 - "$WORKSPACE_MCP" "$EXPECTED_TOOLS" "$GIT_WORKSPACE_HINT" $REQUIRED_MEDIA <<'PY'
+import json, subprocess, sys
 
-mcp, expected, media = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
+mcp, expected, hint = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+media = sys.argv[4:]
 proc = subprocess.Popen(
     [mcp, "serve", "--stdio"],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -70,7 +94,10 @@ def send(msg):
     proc.stdin.write(json.dumps(msg) + "\n")
     proc.stdin.flush()
 
-def next_message():
+def next_response(rid):
+    # The server emits notifications interleaved with responses (e.g.
+    # notifications/tools/list_changed); only a message with a matching
+    # id is the response to this request.
     while True:
         line = proc.stdout.readline()
         if not line:
@@ -79,17 +106,15 @@ def next_message():
         if not line:
             continue
         try:
-            return json.loads(line)
+            msg = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if msg.get("id") == rid:
+            return msg
 
 def call(rid, method, params):
     send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
-    # Skip interleaved notifications; answer only the matching response id.
-    while True:
-        msg = next_message()
-        if msg is None or msg.get("id") == rid:
-            return msg
+    return next_response(rid)
 
 failed = False
 def report(okp, label):
@@ -116,41 +141,26 @@ try:
     report(not missing, "media tools advertised: " + ", ".join(media) + ("" if not missing else f" (missing {missing})"))
 
     r = call(3, "tools/call", {"name": "workspace_roots", "arguments": {}})
-    text = "".join(c.get("text", "") for c in (r or {}).get("result", {}).get("content", []))
-    roots = []
-    try:
-        data = json.loads(text) if text.strip().startswith(("{", "[")) else {}
-        roots = data.get("workspaces") or data.get("roots") or []
-    except json.JSONDecodeError:
-        pass
-    report(bool(roots) or "workspace" in text, f"workspace_roots → {len(roots)} roots")
+    res = (r or {}).get("result", {})
+    workspaces = (res.get("structuredContent") or {}).get("workspaces") or []
+    ids = [w.get("id") for w in workspaces if w.get("id")]
+    report(bool(ids), f"workspace_roots → {len(ids)} roots")
 
-    def ws_id(w):
-        return w.get("id") or w.get("name") or w.get("workspace")
+    # Prefer the hint workspace (this repo — guaranteed git), else the
+    # first root on which git_status succeeds.
+    ws = None
+    ordered = ([hint] if hint in ids else []) + [i for i in ids if i != hint]
+    r = call(4, "tools/call", {"name": "fs_list", "arguments": {"workspace": ordered[0] if ordered else "", "limit": 5}})
+    okp = bool((r or {}).get("result")) and "error" not in (r or {})
+    report(okp, f"fs_list(workspace={ordered[0]!r})" if ordered else "fs_list — no workspace")
 
-    ids = [ws_id(w) for w in roots if ws_id(w)]
-    # Workspace ids deliberately do not expose absolute paths; try likely git
-    # roots first, then every advertised id, until git_status succeeds.
-    preferred = [i for i in ("onramp", "golden-chassis", "agent-tools", "leadson-platform") if i in ids]
-    candidates = preferred + [i for i in ids if i not in preferred]
-
-    if ids:
-        r = call(4, "tools/call", {"name": "fs_list", "arguments": {"workspace": ids[0], "path": ".", "limit": 5}})
+    for cand in ordered:
+        r = call(5, "tools/call", {"name": "git_status", "arguments": {"workspace": cand}})
         res = (r or {}).get("result", {})
-        okp = bool(res) and not res.get("isError") and "error" not in (r or {})
-        report(okp, f"fs_list(workspace={ids[0]!r})")
-
-        git_ok, git_ws, git_err = False, None, ""
-        for i, cand in enumerate(candidates[:8]):
-            r = call(5 + i, "tools/call", {"name": "git_status", "arguments": {"workspace": cand}})
-            res = (r or {}).get("result", {})
-            if res and not res.get("isError") and "error" not in (r or {}):
-                git_ok, git_ws = True, cand
-                break
-            git_err = "".join(c.get("text", "") for c in res.get("content", []))[:120]
-        report(git_ok, f"git_status(workspace={git_ws!r})" if git_ok else f"git_status — all candidates failed ({git_err})")
-    else:
-        report(False, "no workspace root available for fs_list/git_status")
+        if res and not res.get("isError"):
+            ws = cand
+            break
+    report(ws is not None, f"git_status(workspace={ws!r})" if ws else "git_status — no git workspace answered")
 finally:
     proc.terminate()
     try:

@@ -40,4 +40,5 @@ else
   echo "uninstall: managed runtime left running (use --stop-runtime to stop it)"
 fi
 
-echo "uninstall: done — alias, tunnel, keychain item, and logs are untouched"
+echo "uninstall: done — alias, tunnel, keychain item, secret file, and logs are untouched"
+echo "uninstall: to also remove the runtime-key file: rm '$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key'"
