@@ -25,7 +25,7 @@ set -u
 # tool dirs into the plist's EnvironmentVariables PATH; appending the
 # inherited PATH keeps those resolved dirs (and manual-run PATHs) reachable
 # without putting arbitrary dirs ahead of the pinned defaults.
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 ALIAS="local-workspace"
 TUNNEL_CLIENT="$(command -v tunnel-client 2>/dev/null || echo "$HOME/.local/bin/tunnel-client")"
@@ -209,7 +209,11 @@ main() {
     fi
     log "runtime unhealthy for $n consecutive checks — controlled restart"
     preflight_connect || return 1
-    stop_runtime
+    # If the old daemon cannot be reaped, do not connect: a surviving
+    # process can hold or later re-acquire the runtime lock, and the
+    # "never a second runtime on the same tunnel ID" invariant must be
+    # enforced here, not merely hoped for inside connect.
+    stop_runtime || return 1
     if connect_runtime; then write_counter 0; return 0; fi
     return 1
   fi
@@ -217,7 +221,7 @@ main() {
   # No live process: clean any stale daemon holding the lock, then start.
   log "no running runtime — starting managed runtime"
   preflight_connect || return 1
-  stop_runtime
+  stop_runtime || return 1
   if connect_runtime; then write_counter 0; return 0; fi
   return 1
 }

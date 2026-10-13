@@ -11,7 +11,7 @@
 # to the server's audit log.
 
 set -u
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 LABEL="io.github.peter4leadson.local-workspace-mcp.tunnel"
 ALIAS="local-workspace"
@@ -87,7 +87,11 @@ else
 fi
 
 note "MCP stdio probe (tools/catalog + calls)"
-/usr/bin/python3 - "$WORKSPACE_MCP" "$EXPECTED_TOOLS" "$GIT_WORKSPACE_HINT" $REQUIRED_MEDIA <<'PY'
+PYTHON3="$(command -v python3 2>/dev/null || true)"
+if [ -z "$PYTHON3" ]; then
+  bad "python3 not on PATH — needed for the stdio probe"
+else
+"$PYTHON3" - "$WORKSPACE_MCP" "$EXPECTED_TOOLS" "$GIT_WORKSPACE_HINT" $REQUIRED_MEDIA <<'PY'
 import json, signal, subprocess, sys
 
 signal.alarm(90)  # a hung server must not hang the health check
@@ -181,6 +185,7 @@ finally:
 sys.exit(1 if failed else 0)
 PY
 [ $? -ne 0 ] && fail=1
+fi
 
 echo ""
 if [ $fail -eq 0 ]; then

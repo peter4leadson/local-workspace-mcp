@@ -214,6 +214,12 @@ scripts/launchd/uninstall.sh --stop-runtime   # …and stop the runtime too
   until the next restart (force one by stopping the runtime).
 - The managed `tunnel-client run` process is parented to launchd (PPID 1),
   so Codex Desktop and ChatGPT restarts cannot affect it.
+- Toolchain upgrades: the agent's PATH is computed from the resolved
+  node/git/rg/jq/tunnel-client/workspace-mcp directories at install time
+  and baked into the plist. After a node version-manager upgrade (nvm,
+  asdf, mise) that moves those directories, re-run `install.sh` so the
+  baked PATH is recomputed — `workspace-mcp`'s `#!/usr/bin/env node`
+  launcher otherwise stops resolving.
 - Logs: `~/Library/Logs/local-workspace-mcp/reconcile{,.error}.log`;
   reconcile state: `~/Library/Application Support/local-workspace-mcp/`.
 - Rollback: `uninstall.sh` boots out the agent and deletes the plist; the

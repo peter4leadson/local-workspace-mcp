@@ -14,7 +14,7 @@ LABEL="io.github.peter4leadson.local-workspace-mcp.tunnel"
 ALIAS="local-workspace"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
+TUNNEL_CLIENT="${TUNNEL_CLIENT:-$(command -v tunnel-client 2>/dev/null || echo "$HOME/.local/bin/tunnel-client")}"
 
 stop_runtime=0
 [ "${1:-}" = "--stop-runtime" ] && stop_runtime=1
@@ -34,12 +34,16 @@ else
 fi
 
 if [ "$stop_runtime" -eq 1 ]; then
-  "$TUNNEL_CLIENT" runtimes stop "$ALIAS" >/dev/null 2>&1 || true
-  sleep 2
-  if pgrep -f "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS( |$)" >/dev/null 2>&1; then
-    echo "uninstall: WARNING — a tunnel-client run process for '$ALIAS' survived 'runtimes stop'; kill it manually"
+  if [ ! -x "$TUNNEL_CLIENT" ]; then
+    echo "uninstall: WARNING — tunnel-client not executable at $TUNNEL_CLIENT; 'runtimes stop' was not attempted"
   else
-    echo "uninstall: managed runtime for alias '$ALIAS' stopped"
+    "$TUNNEL_CLIENT" runtimes stop "$ALIAS" >/dev/null 2>&1 || true
+    sleep 2
+    if pgrep -f "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS( |$)" >/dev/null 2>&1; then
+      echo "uninstall: WARNING — a tunnel-client run process for '$ALIAS' survived 'runtimes stop'; kill it manually"
+    else
+      echo "uninstall: managed runtime for alias '$ALIAS' stopped"
+    fi
   fi
 else
   echo "uninstall: managed runtime left running (use --stop-runtime to stop it)"

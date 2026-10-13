@@ -261,6 +261,23 @@ Independent fresh-context review (2026-10-12) on the same scripts:
 | I-7 | Low      | Stale comment, prose off-by-one (tolerated checks), unconditional "stopped", `null` tunnel_id in output  | Fixed: comment/prose corrected, post-stop pgrep, `// empty`                                                           |
 | I-8 | Low      | `/usr/bin/python3` and `${USER}` assumptions                                                             | Fixed: `command -v python3` preflight; `${USER:-$(id -un)}`                                                           |
 
+Verification round (ECC `security-reviewer` spec, fresh-context seat,
+REMEDIATION_VERIFY on `9ddcb20`): all prior findings confirmed FIXED
+except I-1 and I-8, each partially — plus the delta findings below, all
+remediated on `main` after `9fc96fc`:
+
+| ID  | Severity | Finding                                                                                                                                                      | Disposition                                                                                    |
+| --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | --- | ----------------------------------------------------------------------- |
+| N-1 | Low-Med  | Interpolated paths (`$AGENT_PATH`, `$RECONCILE`, `$LOG_DIR`) were embedded raw in plist XML — `&`/`<` in a tool dir produced a malformed plist (fail-closed) | Fixed: install.sh rejects `&`/`<` in interpolated paths before writing                         |
+| N-2 | Low-Med  | `stop_runtime`'s failure was ignored at both call sites — `connect` could proceed while an unreaped daemon held the runtime lock                             | Fixed: `stop_runtime                                                                           |     | return 1`; the no-second-runtime invariant is now enforced in reconcile |
+| N-3 | Low      | Predictable tempfile name (`tmp.$$`) for the key materialization; partial file could linger on failure                                                       | Fixed: `mktemp` + `trap` cleanup                                                               |
+| N-4 | Low      | `uninstall.sh` hardcoded `~/.local/bin/tunnel-client` — on other layouts `--stop-runtime` never attempted the stop but warned as if it had                   | Fixed: `command -v` + `TUNNEL_CLIENT` override; unexecutable binary now warns "not attempted"  |
+| N-5 | Low      | `health-check.sh` invoked literal `/usr/bin/python3`, ignoring the computed PATH                                                                             | Fixed: `command -v python3` with a `FAIL` preflight line                                       |
+| N-6 | Low      | Install-time `AGENT_PATH` goes stale on toolchain upgrades; resolution-only preflight could pass a broken shim dir                                           | Fixed: `node --version` exec preflight + OPERATIONS.md "re-run install.sh after upgrades" note |
+| N-7 | Info     | Appended caller `$PATH` could host a trojaned tool on hostile-PATH manual runs; unguarded `$PATH` aborted under `env -i`                                     | Fixed: `${PATH:-}` guard; PATH-squatting residual already scoped to same-uid attackers         |
+| N-8 | Info     | `cat > "$PLIST"` followed a pre-planted symlink at the plist path (same-uid scope)                                                                           | Fixed: plist written via `mktemp` + `mv -f`, same pattern as the secret file                   |
+| N-9 | Info     | `pnpm` resolved into `AGENT_PATH` but was absent from the verify loop — install could succeed with `task_run` broken                                         | Fixed: pnpm now preflighted under the agent PATH (warns, does not block)                       |
+
 Residual risks specific to this layer (accepted):
 
 - **PATH squatting.** The agent's PATH leads with user-writable

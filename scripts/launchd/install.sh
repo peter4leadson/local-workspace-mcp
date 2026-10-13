@@ -71,6 +71,12 @@ for tool in node git rg workspace-mcp tunnel-client jq; do
   env PATH="$AGENT_PATH" command -v "$tool" >/dev/null 2>&1 \
     || fail "$tool does not resolve under the agent PATH — install it somewhere on PATH (see OPERATIONS §Persistence)"
 done
+# Resolution is not execution: a shim dir (asdf/mise) can answer
+# `command -v` without its runtime dir on the agent PATH.
+env PATH="$AGENT_PATH" node --version >/dev/null 2>&1 \
+  || fail "node resolves under the agent PATH but cannot exec (re-run install.sh after fixing the toolchain)"
+env PATH="$AGENT_PATH" command -v pnpm >/dev/null 2>&1 \
+  || echo "install: WARNING — pnpm is not on the agent PATH; task_run tools will fail until it is"
 
 # --- secret file (keychain → 0600 file → profile `file:` ref) ---------------
 if [ "${1:-}" = "--refresh-secret" ] || [ ! -s "$SECRET_FILE" ]; then
@@ -79,10 +85,13 @@ if [ "${1:-}" = "--refresh-secret" ] || [ ! -s "$SECRET_FILE" ]; then
   mkdir -p "$SECRET_DIR"
   chmod 700 "$SECRET_DIR"
   umask 077
-  tmp_secret="$SECRET_FILE.tmp.$$"
+  tmp_secret="$(mktemp "$SECRET_FILE.tmp.XXXXXX")" \
+    || fail "could not create temp file in $SECRET_DIR"
+  trap 'rm -f "$tmp_secret"' EXIT
   security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w > "$tmp_secret" \
     || fail "could not write $SECRET_FILE"
   mv -f "$tmp_secret" "$SECRET_FILE"
+  trap - EXIT
   chmod 600 "$SECRET_FILE"
   echo "install: secret materialized from keychain → $SECRET_FILE (0600)"
 else
@@ -114,7 +123,14 @@ TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json 2>/dev/null | jq -r --arg a "
 mkdir -p "$PLIST_DIR" "$LOG_DIR" "$STATE_DIR"
 
 # --- plist (no secrets — the key is a file: ref, never an env value) --------
-cat > "$PLIST" <<EOF
+# These values land verbatim inside plist XML; reject characters that would
+# corrupt the document instead of writing a plist bootstrap cannot parse.
+for v in "$AGENT_PATH" "$RECONCILE" "$LOG_DIR" "$PLIST"; do
+  case "$v" in (*\&*|*\<*) fail "path contains XML-unsafe characters: $v" ;; esac
+done
+tmp_plist="$(mktemp "$PLIST_DIR/.$LABEL.XXXXXX")" \
+  || fail "could not create temp plist in $PLIST_DIR"
+cat > "$tmp_plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -144,7 +160,8 @@ cat > "$PLIST" <<EOF
 </dict>
 </plist>
 EOF
-chmod 644 "$PLIST"
+chmod 644 "$tmp_plist"
+mv -f "$tmp_plist" "$PLIST"
 
 # --- (re)load ---------------------------------------------------------------
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true

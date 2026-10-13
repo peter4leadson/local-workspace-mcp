@@ -6,6 +6,25 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-10-12
+
+### Fixed — launchd tooling (ECC security-verify round)
+
+- `reconcile.sh` now enforces the single-runtime invariant: a failed
+  `stop_runtime` blocks `connect` instead of proceeding against an
+  unreaped daemon.
+- `install.sh` writes the plist via `mktemp` + `mv -f` and rejects
+  XML-unsafe characters in interpolated paths; the secret tempfile is
+  now an unguessable `mktemp` name with `trap` cleanup.
+- `install.sh` preflights `node --version` _exec_ under the agent PATH
+  (not just resolution) and warns when `pnpm` is absent; `OPERATIONS.md`
+  documents re-running `install.sh` after node toolchain upgrades.
+- `uninstall.sh` resolves `tunnel-client` via `command -v` (with a
+  `TUNNEL_CLIENT` override) and reports honestly when the binary is not
+  executable; `health-check.sh` resolves `python3` the same way.
+- `${PATH:-}` guards in `reconcile.sh`/`health-check.sh` survive
+  `env -i` invocation.
+
 ## [0.2.1] — 2026-10-12
 
 ### Added — persistent tunnel runtime (macOS) + public tunnel setup docs
