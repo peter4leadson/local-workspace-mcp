@@ -140,6 +140,40 @@ at that tunnel. The notes below assume `<alias>` names that profile.
   spawned per request-path by tunnel-client).
 - Keep the daemon running for connector discovery and every ChatGPT call.
 
+### Persistence (macOS launchd)
+
+`scripts/launchd/` keeps the managed runtime alive without manual steps:
+
+```sh
+scripts/launchd/install.sh        # install/refresh the LaunchAgent (idempotent)
+scripts/launchd/health-check.sh   # deep verification; exit 0 = all green
+scripts/launchd/uninstall.sh      # remove persistence only
+scripts/launchd/uninstall.sh --stop-runtime   # …and stop the runtime too
+```
+
+- LaunchAgent `io.github.peter4leadson.local-workspace-mcp.tunnel`
+  (`~/Library/LaunchAgents/`) runs `reconcile.sh` at login and every 60 s.
+- Reconciliation: `runtimes status <alias> --json` must report
+  `process_running` + `healthy` + `ready`. A dead runtime is reconnected
+  immediately. A live-but-unhealthy runtime is tolerated for 4 consecutive
+  checks (~4 min — tunnel-client's own backoff rides out transient
+  network/platform outages) before a controlled stop→connect restart.
+- Reconnects bind `--tunnel-id` resolved from the local alias record, so
+  recovery needs no admin key and can never create a replacement tunnel.
+  A second instance on the same tunnel ID is never started: the script
+  reads live status before every action and always stops the old runtime
+  before launching a replacement.
+- `CONTROL_PLANE_API_KEY` is read from the login keychain
+  (`security find-generic-password`, item `tunnel-client-control-plane`)
+  into the environment only at connect time. No secret is stored in the
+  plist, the scripts, or the logs.
+- The managed `tunnel-client run` process is parented to launchd (PPID 1),
+  so Codex Desktop and ChatGPT restarts cannot affect it.
+- Logs: `~/Library/Logs/local-workspace-mcp/reconcile{,.error}.log`;
+  reconcile state: `~/Library/Application Support/local-workspace-mcp/`.
+- Rollback: `uninstall.sh` boots out the agent and deletes the plist; the
+  alias, tunnel, keychain item, and logs are untouched.
+
 ---
 
 See also: [README](../README.md) · [SECURITY.md](../SECURITY.md) · [docs/THREAT-MODEL.md](THREAT-MODEL.md)

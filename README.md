@@ -374,6 +374,7 @@ the file first if you intend a reset.
 | `TIMEOUT:` on a media call/item              | deadline hit — narrow the request (fewer pages/items, smaller `fitMaxDim`) or raise `limits.mediaTimeoutMs`                      |
 | Unexpected `INTERNAL_ERROR`                  | check the host's MCP stderr log; report per [SECURITY.md](SECURITY.md)                                                           |
 | Tunnel (ChatGPT) down                        | `tunnel-client runtimes status`; recovery in [docs/OPERATIONS.md](docs/OPERATIONS.md)                                            |
+| Tunnel gone after reboot/login               | `scripts/launchd/install.sh` installs the self-healing LaunchAgent; see [docs/OPERATIONS.md §Persistence](docs/OPERATIONS.md)    |
 
 `workspace-mcp doctor --json` gives machine-readable output for CI or
 wrapper scripts. Full reset: delete the config and

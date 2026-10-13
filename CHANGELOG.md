@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added — persistent tunnel runtime (macOS)
+
+- `scripts/launchd/` — per-user LaunchAgent tooling that keeps the
+  `tunnel-client` managed runtime alive across login, app restarts, process
+  death, network interruptions, and sleep/wake:
+  `install.sh` (idempotent), `reconcile.sh` (60 s status→restart loop with
+  transient-outage tolerance and single-instance guarantee),
+  `health-check.sh` (deep chain verification), `uninstall.sh` (rollback).
+  See `docs/OPERATIONS.md` §Persistence.
+
 ## [0.2.0] — 2026-10-11
 
 ### Added — multimodal file access (9 new tools, 23 total)
