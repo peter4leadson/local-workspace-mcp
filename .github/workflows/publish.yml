@@ -30,10 +30,6 @@ on:
         required: false
         type: boolean
         default: false
-      approve_stage:
-        description: "Stage ID to approve via OIDC (from `npm stage list` or the publish log) — approves instead of publishing."
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -80,25 +76,8 @@ jobs:
         run: npm stage publish --access public --tag latest --loglevel silly 2>&1 | grep -viE "_attachments|data\":\"[A-Za-z0-9+/=]{80}|authorization|bearer|npm_[A-Za-z0-9]{8}"
         continue-on-error: true # diagnostic run — capture output, don't gate on it
 
-  # Approve a staged release — dispatch-only. The npm-release environment's
-  # required-reviewer approval is still the human gate; this replaces the
-  # npmjs.com click with an authorized OIDC call.
-  approve-stage:
-    if: github.event_name == 'workflow_dispatch' && inputs.approve_stage != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: npm-release
-    steps:
-      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
-        with:
-          node-version: "24"
-      - name: npm CLI with staged-publishing support (>=11.15)
-        run: npm_config_minimum_release_age=0 npm install -g npm@^11.15.0 && npm --version
-      - name: Approve staged release
-        run: npm stage approve "${{ inputs.approve_stage }}"
-
   publish:
-    if: github.event_name == 'release' || (!inputs.diagnose && inputs.approve_stage == '')
+    if: github.event_name == 'release' || !inputs.diagnose
     runs-on: ubuntu-latest
     environment: npm-release # required-reviewers gate: owner approval before any publish step
     steps:
