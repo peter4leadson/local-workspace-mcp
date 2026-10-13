@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.2.1] — 2026-10-12
+
+### Added — persistent tunnel runtime (macOS) + public tunnel setup docs
+
+- `scripts/launchd/` — per-user LaunchAgent tooling that keeps the
+  `tunnel-client` managed runtime alive across login, app restarts, process
+  death, network interruptions, and sleep/wake:
+  `install.sh` (idempotent), `reconcile.sh` (60 s status→restart loop with
+  transient-outage tolerance and single-instance guarantee),
+  `health-check.sh` (deep chain verification), `uninstall.sh` (rollback).
+  See `docs/OPERATIONS.md` §Persistence.
+- README now documents the full ChatGPT tunnel path: tunnel + Runtime API
+  key creation in the OpenAI console, keychain/`file:` secret posture,
+  `tunnel-client init`/`doctor`/`runtimes connect`, connector binding, and
+  launchd install/rollback.
+- `docs/LAUNCHD-ATAM-2026-10-12.md` — architecture review record;
+  `docs/THREAT-MODEL.md` carries the launchd boundary inventory and the
+  two-round findings ledger (self-review + independent review).
+
+### Fixed — launchd tooling (independent-review round)
+
+- Secret materialization writes a tempfile then `mv -f` (a planted symlink
+  at the secret-file path is replaced, never followed).
+- Binaries and the agent PATH resolve from the installer's environment
+  (`command -v`), with per-tool preflight under the exact plist PATH — the
+  scripts no longer assume `~/.local/bin` or a specific node manager.
+- The daemon-argv leak check inspects real argv via `ps` (BSD `pgrep -l`
+  prints comm only).
+- Reconcile validates connect prerequisites (key file readable, tunnel id
+  resolvable) before stopping a live-but-unhealthy runtime.
+- jq/python3 preflights, stale-lock stat edge, honest `--stop-runtime`
+  report, stdio-probe deadline.
+
 ## [0.2.0] — 2026-10-11
 
 ### Added — multimodal file access (9 new tools, 23 total)

@@ -121,24 +121,103 @@ the exposed tool count after each step.
 ## OpenAI Secure MCP Tunnel (ChatGPT path)
 
 Cold start: install `tunnel-client`
-(`https://github.com/openai/tunnel-client`), create a tunnel profile
-(`tunnel-client runtimes create`, which writes the YAML naming the stdio
-command and `tunnel_id`), then register the connector in ChatGPT pointing
-at that tunnel. The notes below assume `<alias>` names that profile.
+(`https://github.com/openai/tunnel-client`), create a tunnel and a
+Runtime API key in the OpenAI platform console (Tunnels management +
+Runtime API keys — links in `tunnel-client help doctor`), store the key
+in the keychain or a 0600 file (`file:` ref) — never in the profile YAML
+— then write the profile (`tunnel-client init --profile <name>
+--tunnel-id <tunnel_…> --mcp-command '"$(command -v workspace-mcp)" serve --stdio'
+--control-plane-api-key-ref file:…`) and register the connector in
+ChatGPT pointing at that tunnel while the daemon runs. The notes below
+assume `<alias>` names that profile.
 
 - Supervision: `tunnel-client runtimes connect <alias>` (native managed
   runtime — per OpenAI guidance, do not supervise with nohup/disown;
   `<alias>` names the configured tunnel profile). Status:
   `tunnel-client runtimes status <alias> --json` (expect
   `process_running/healthy/ready`).
+- Persistence (macOS): a per-user LaunchAgent
+  `io.github.peter4leadson.local-workspace-mcp.tunnel` keeps the managed
+  runtime alive across login, app restarts, process death, network
+  interruptions, and sleep/wake. Install once:
+  `scripts/launchd/install.sh` (idempotent; `--refresh-secret` after key
+  rotation). Remove with `scripts/launchd/uninstall.sh`
+  (`--stop-runtime` also stops the daemon). Full chain audit:
+  `scripts/launchd/health-check.sh`. See
+  [Persistence](#persistence-macos-launchd) below.
 - Health surfaces: `/healthz` `/readyz` `/metrics` `/ui` on the health
-  listener (`--health.listen-addr 127.0.0.1:<port>`; loopback only).
-- Credentials: `CONTROL_PLANE_API_KEY` via env or `file:` ref — never in the
-  profile YAML, never committed. `tunnel_id` in the profile is not a secret.
-- Recovery: if the daemon dies, `runtimes status` shows unhealthy →
-  `runtimes connect` again; the MCP server itself needs no restart (it is
-  spawned per request-path by tunnel-client).
+  listener (`--health-listen-addr`; tunnel-client binds `127.0.0.1:8080`
+  by default — loopback only; use `:0` for an ephemeral port).
+- Credentials: the runtime API key is stored in the macOS keychain and
+  materialized by `install.sh` into a 0600 file at
+  `~/Library/Application Support/tunnel-client/secrets/control-plane-api-key`;
+  the profile references it via `file:` — never inline, never committed,
+  never in the plist, agent environment, or logs. `tunnel_id` in the
+  profile is not a secret. (`env:` refs also work interactively but put
+  the key in the daemon's environment; the `file:` ref is the installed
+  posture.)
+- Recovery: the LaunchAgent reconciles every 60 s — dead processes are
+  restarted immediately, wedged-but-alive runtimes receive a controlled
+  restart (stop → connect) only after several consecutive unhealthy
+  checks so transient network/platform outages ride out in
+  tunnel-client's own backoff. Manual equivalent: `runtimes status`
+  shows unhealthy → `runtimes connect` again; the MCP server itself
+  needs no restart (it is spawned per request-path by tunnel-client).
 - Keep the daemon running for connector discovery and every ChatGPT call.
+
+### Persistence (macOS launchd)
+
+`scripts/launchd/` keeps the managed runtime alive without manual steps:
+
+```sh
+scripts/launchd/install.sh        # install/refresh the LaunchAgent (idempotent)
+scripts/launchd/health-check.sh   # deep verification; exit 0 = all green
+scripts/launchd/uninstall.sh      # remove persistence only
+scripts/launchd/uninstall.sh --stop-runtime   # …and stop the runtime too
+```
+
+- LaunchAgent `io.github.peter4leadson.local-workspace-mcp.tunnel`
+  (`~/Library/LaunchAgents/`) runs `reconcile.sh` at login and every 60 s.
+- Reconciliation: `runtimes status <alias> --json` must report
+  `process_running` + `healthy` + `ready`. A dead runtime is reconnected
+  immediately. A live-but-unhealthy runtime is tolerated for up to 3
+  consecutive checks (~3 min — tunnel-client's own backoff rides out
+  transient network/platform outages); the 4th triggers a controlled
+  stop→connect restart.
+- Reconnects bind `--tunnel-id` resolved from the local alias record, so
+  recovery needs no admin key and can never create a replacement tunnel.
+  A second instance on the same tunnel ID is never started: a mkdir lock
+  serializes manual runs against the agent, live status is read before
+  every action, and a restart always stops the old runtime first — if a
+  suspended/wedged daemon survives `runtimes stop`, it is resumed and
+  force-killed before the replacement connects.
+- Coverage: macOS restart/login (RunAtLoad), ChatGPT or Codex app
+  restarts (clients only consume the tunnel; nothing local to restart),
+  tunnel process termination (next tick), network drops (transient
+  tolerance + daemon backoff), sleep/wake (missed intervals fire on
+  wake), and repeated `install.sh` runs (byte-identical plist, single
+  agent, single daemon, single alias).
+- Prerequisite: the runtime API key must already be a login-keychain item
+  (`security add-generic-password -s tunnel-client-control-plane -a "$USER"
+-w`). `install.sh` materializes it into the 0600 file because `file:` is
+  the only key reference that survives unattended in the launchd context —
+  a keychain read inside the agent can stall on an ACL prompt, and an
+  `env:` ref would place the key in the daemon's environment.
+- Credentials: the runtime API key lives in the login keychain
+  (`tunnel-client-control-plane`). `install.sh` materializes it once into
+  a 0600 file (`~/Library/Application Support/tunnel-client/secrets/`)
+  and the profile references it via `file:` — re-asserted by
+  `--runtime-api-key` on every connect so the ref cannot drift back to
+  `env:`. No secret is placed in the plist, the agent environment, daemon
+  argv, or the logs. `install.sh --refresh-secret` re-materializes after
+  key rotation; it does not reconnect — a running daemon keeps its old key
+  until the next restart (force one by stopping the runtime).
+- The managed `tunnel-client run` process is parented to launchd (PPID 1),
+  so Codex Desktop and ChatGPT restarts cannot affect it.
+- Logs: `~/Library/Logs/local-workspace-mcp/reconcile{,.error}.log`;
+  reconcile state: `~/Library/Application Support/local-workspace-mcp/`.
+- Rollback: `uninstall.sh` boots out the agent and deletes the plist; the
+  alias, tunnel, keychain item, and logs are untouched.
 
 ---
 

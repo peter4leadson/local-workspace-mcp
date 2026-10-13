@@ -205,6 +205,84 @@ directory walk when `ls-files` output is truncated instead of returning a
 silently partial universe; a rejected PDFium init is no longer cached
 forever (next call retries).
 
+## Launchd persistence subsystem (2026-10-12 delta)
+
+Scope: `scripts/launchd/{install,reconcile,health-check,uninstall}.sh` and the
+LaunchAgent `io.github.peter4leadson.local-workspace-mcp.tunnel`. This layer
+supervises OpenAI's `tunnel-client runtimes connect` managed runtime; it does
+not run the MCP server itself and adds no network surface.
+
+Additional assets it touches:
+
+- The tunnel **Runtime API key** (keychain item
+  `tunnel-client-control-plane`, materialized once to a 0600 file under
+  `~/Library/Application Support/tunnel-client/secrets/`).
+- Runtime availability (agent must not churn restarts or fork daemons).
+- Host integrity under the user's own uid (the agent runs as the user in
+  `gui/$UID`; nothing here crosses a privilege boundary).
+
+Boundary statements:
+
+- The key never appears in the plist, agent environment, daemon argv, or
+  logs — the profile carries a `file:` ref and reconcile re-asserts it via
+  `--runtime-api-key file:…` on every connect so `connect` cannot drift it
+  back to `env:` (which would expose the key in daemon argv).
+- Secret materialization writes a tempfile then `mv -f` — a pre-planted
+  symlink at the secret-file path is replaced, never followed (verified
+  against a planted-symlink canary).
+- `runtimes status … --json` is parsed with jq field extraction only; no
+  JSON is eval'd or interpolated into commands.
+- The mkdir lock serializes manual and launchd reconcile runs; a restart
+  always `runtimes stop`s first and force-kills (SIGCONT→SIGKILL) a
+  suspended/wedged daemon before any reconnect — a second process on the
+  same tunnel id is never started.
+- jq absence fails closed with a legible error before any action.
+- `pgrep -f` patterns are anchored on the literal profile dir + profile
+  name; no untrusted input reaches a regex or a command line.
+
+Findings this round (self-review + live tests):
+
+| Id  | Sev | Finding                                                                                                                                                   | Disposition                                                      |
+| --- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| P-1 | Med | `security … -w > $SECRET_FILE` followed a pre-planted symlink — key written to an attacker-chosen path (demonstrated; canary clobbered with key material) | Fixed: tempfile + `mv -f` replaces the link; retested            |
+| P-2 | Low | Missing jq produced a misleading "status produced no JSON" log every 60 s                                                                                 | Fixed: explicit jq preflight in reconcile.sh and health-check.sh |
+| P-3 | Low | `uninstall.sh --stop-runtime` printed "stopped" even if a wedged daemon survived                                                                          | Fixed: post-stop pgrep check warns honestly                      |
+
+Independent fresh-context review (2026-10-12) on the same scripts:
+
+| Id  | Sev      | Finding                                                                                                  | Disposition                                                                                                           |
+| --- | -------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| I-1 | High     | Binaries hardcoded to `$HOME/.local/bin` — fails preflight (or churns connects) on other install layouts | Fixed: `command -v` resolution + env overrides; agent PATH built from resolved tool dirs                              |
+| I-2 | High     | Plist PATH assumed the installer's toolchain — unresolvable `env node` = infinite restart churn          | Fixed: install computes the agent PATH from resolved node/git/rg/workspace-mcp dirs and preflights each tool under it |
+| I-3 | Med-High | `pgrep -fl` prints comm not argv on macOS — the "no API key in daemon argv" check could never fail       | Fixed: argv inspected via `ps -o command=` per pid                                                                    |
+| I-4 | Med      | `stop_runtime` ran before connect prerequisites — a missing key file converted a limping runtime to dead | Fixed: `preflight_connect` validates key file + tunnel id before any stop                                             |
+| I-5 | Med      | `stat` failure on the live lock yielded `mtime=0` — a false-stale takeover could split-brain             | Fixed: indeterminate age is not stale                                                                                 |
+| I-6 | Low-Med  | The stdio probe had no deadline — a hung server could hang health-check                                  | Fixed: `signal.alarm(90)` inside the probe                                                                            |
+| I-7 | Low      | Stale comment, prose off-by-one (tolerated checks), unconditional "stopped", `null` tunnel_id in output  | Fixed: comment/prose corrected, post-stop pgrep, `// empty`                                                           |
+| I-8 | Low      | `/usr/bin/python3` and `${USER}` assumptions                                                             | Fixed: `command -v python3` preflight; `${USER:-$(id -un)}`                                                           |
+
+Residual risks specific to this layer (accepted):
+
+- **PATH squatting.** The agent's PATH leads with user-writable
+  `$HOME/.asdf/shims` and `$HOME/.local/bin` because `workspace-mcp` is a
+  `#!/usr/bin/env node` launcher and needs node/git/rg/pnpm resolution.
+  Another process already running as the same user could shadow a binary —
+  but a same-uid attacker can already read the 0600 secret file and signal
+  the daemon; this is not a privilege boundary, only a robustness note.
+- **Same-uid attacker scope.** Everything the agent protects (key file,
+  profile, logs) is already readable by the user's own processes. The
+  layer's security value is _not adding_ exposure (no argv/env/plist
+  secrets), not defending against the user account itself.
+- **Repo relocation.** The plist pins the absolute `reconcile.sh` path;
+  moving the repo breaks the agent until `install.sh` re-runs. Documented,
+  not self-healing.
+- **Stale-lock takeover window** (180 s) could split-brain a manual run
+  against a wedged agent run — bounded by the second mkdir check and by
+  `runtimes connect`'s own runtime lock.
+- **`runtimes list` dependency.** Tunnel-id resolution needs the local
+  alias record; if the record is lost the agent logs an error and stops —
+  it will never guess or create a tunnel.
+
 ## Residual risks (accepted, documented)
 
 1. **Hardlinks**: a hardlink inside a root to a sensitive file outside is
