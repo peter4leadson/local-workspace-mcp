@@ -205,9 +205,38 @@ command = "/absolute/path/to/workspace-mcp"
 args = ["serve", "--stdio"]
 ```
 
-For ChatGPT, `tunnel-client` polls an outbound HTTPS path and spawns the
-stdio command locally; no inbound network listener opens. (tunnel-client
-can optionally bind a loopback-only health endpoint — see OPERATIONS.)
+ChatGPT / Responses API use the OpenAI Secure MCP Tunnel: `tunnel-client`
+polls an outbound HTTPS path and spawns the stdio command locally; no
+inbound network listener opens.
+
+```sh
+# 1. Install tunnel-client (github.com/openai/tunnel-client).
+# 2. In the OpenAI platform console create a tunnel and a Runtime API key:
+#      https://platform.openai.com/settings/organization/tunnels
+#      https://platform.openai.com/settings/organization/api-keys
+# 3. Store the key somewhere the daemon can read it unattended — a 0600
+#    file referenced as `file:` works under launchd; `env:` is the
+#    interactive default. Never put the raw key in the profile, a plist,
+#    or on a command line.
+# 4. Write the profile and start the managed runtime (attach to the
+#    existing tunnel id — no admin key needed):
+tunnel-client init --profile local-workspace \
+  --tunnel-id <tunnel_…> \
+  --mcp-command "$(command -v workspace-mcp) serve --stdio" \
+  --control-plane-api-key-ref file:/path/to/control-plane-api-key
+tunnel-client runtimes connect --alias local-workspace \
+  --profile local-workspace --tunnel-id <tunnel_…>
+tunnel-client runtimes status local-workspace --json
+#    expect process_running=true, healthy=true, ready=true
+# 5. ChatGPT → Settings → Connectors → add/refresh a connector bound to
+#    this tunnel while the daemon is running.
+```
+
+macOS persistence: `scripts/launchd/install.sh` installs a per-user
+LaunchAgent that keeps the managed runtime alive across reboots, app
+restarts, process death, network drops, and sleep/wake — no manual
+restarts. Requires `jq` on PATH. See
+[docs/OPERATIONS.md §Persistence](docs/OPERATIONS.md#persistence-macos-launchd).
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ChatGPT host validation (2026-10-11): after connector refresh, a live

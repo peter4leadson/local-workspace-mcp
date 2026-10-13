@@ -22,17 +22,17 @@ set -u
 # Minimal, explicit PATH. The managed runtime spawns `workspace-mcp`, whose
 # launcher is a `#!/usr/bin/env node` script, so node (asdf shims), git, rg,
 # and task executables (pnpm) must be resolvable here.
-export PATH="/Users/petercbennett/.asdf/shims:/Users/petercbennett/.local/bin:/Users/petercbennett/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 ALIAS="local-workspace"
-TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
-MCP_COMMAND="/Users/petercbennett/.local/bin/workspace-mcp serve --stdio"
+TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
+MCP_COMMAND="$HOME/.local/bin/workspace-mcp serve --stdio"
 PROFILE="local-workspace"
-PROFILE_DIR="/Users/petercbennett/.config/tunnel-client"
+PROFILE_DIR="$HOME/.config/tunnel-client"
 ADMIN_PROFILE="default"
 SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
 API_KEY_REF="file:$SECRET_FILE"
-JQ="/usr/bin/jq"
+JQ="$(command -v jq)"
 
 STATE_DIR="$HOME/Library/Application Support/local-workspace-mcp"
 STATE_FILE="$STATE_DIR/reconcile.state"

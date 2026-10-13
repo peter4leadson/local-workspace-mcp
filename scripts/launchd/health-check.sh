@@ -9,14 +9,14 @@
 # PASS/FAIL so the first failure is obvious). Read-only: no state changes.
 
 set -u
-export PATH="/Users/petercbennett/.asdf/shims:/Users/petercbennett/.local/bin:/Users/petercbennett/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 LABEL="io.github.peter4leadson.local-workspace-mcp.tunnel"
 ALIAS="local-workspace"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
-WORKSPACE_MCP="/Users/petercbennett/.local/bin/workspace-mcp"
-JQ="/usr/bin/jq"
+TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
+WORKSPACE_MCP="$HOME/.local/bin/workspace-mcp"
+JQ="$(command -v jq)"
 SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
 PROFILE_FILE="$HOME/.config/tunnel-client/$ALIAS.yaml"
 GIT_WORKSPACE_HINT="agent-tools"

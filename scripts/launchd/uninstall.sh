@@ -14,7 +14,7 @@ LABEL="io.github.peter4leadson.local-workspace-mcp.tunnel"
 ALIAS="local-workspace"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
+TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
 
 stop_runtime=0
 [ "${1:-}" = "--stop-runtime" ] && stop_runtime=1

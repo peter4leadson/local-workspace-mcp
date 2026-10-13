@@ -29,10 +29,10 @@ PLIST="$PLIST_DIR/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/local-workspace-mcp"
 STATE_DIR="$HOME/Library/Application Support/local-workspace-mcp"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="/Users/petercbennett/.local/bin/tunnel-client"
-WORKSPACE_MCP="/Users/petercbennett/.local/bin/workspace-mcp"
+TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
+WORKSPACE_MCP="$HOME/.local/bin/workspace-mcp"
 KEYCHAIN_SERVICE="tunnel-client-control-plane"
-KEYCHAIN_ACCOUNT="petercbennett"
+KEYCHAIN_ACCOUNT="${USER}"
 SECRET_DIR="$HOME/Library/Application Support/tunnel-client/secrets"
 SECRET_FILE="$SECRET_DIR/control-plane-api-key"
 API_KEY_REF="file:$SECRET_FILE"
@@ -45,12 +45,12 @@ fail() { echo "install: ERROR: $*" >&2; exit 1; }
 [ -x "$RECONCILE" ] || fail "reconcile script missing: $RECONCILE"
 [ -x "$TUNNEL_CLIENT" ] || fail "tunnel-client missing: $TUNNEL_CLIENT"
 [ -x "$WORKSPACE_MCP" ] || fail "workspace-mcp missing: $WORKSPACE_MCP"
-[ -x /usr/bin/jq ] || fail "/usr/bin/jq missing (needed by reconcile)"
+command -v jq >/dev/null 2>&1 || fail "jq not on PATH (needed by reconcile)"
 [ -f "$PROFILE_FILE" ] \
   || fail "tunnel profile missing: ~/.config/tunnel-client/$ALIAS.yaml"
 
 "$TUNNEL_CLIENT" runtimes list --json 2>/dev/null \
-  | /usr/bin/jq -e --arg a "$ALIAS" '.aliases[] | select(.alias == $a)' >/dev/null \
+  | jq -e --arg a "$ALIAS" '.aliases[] | select(.alias == $a)' >/dev/null \
   || fail "alias '$ALIAS' not registered — create it once via tunnel-client runtimes create"
 
 # --- secret file (keychain → 0600 file → profile `file:` ref) ---------------
@@ -86,7 +86,7 @@ else:
     print("install: profile api_key already file: ref")
 PY
 
-TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json | /usr/bin/jq -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id')"
+TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json | jq -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id')"
 
 mkdir -p "$PLIST_DIR" "$LOG_DIR" "$STATE_DIR"
 
@@ -106,7 +106,7 @@ cat > "$PLIST" <<EOF
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
-		<string>/Users/petercbennett/.asdf/shims:/Users/petercbennett/.local/bin:/Users/petercbennett/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -147,9 +147,9 @@ echo ""
 # Give the RunAtLoad pass a head start, then report the reconciled state.
 sleep 12
 st="$("$TUNNEL_CLIENT" runtimes status "$ALIAS" --json 2>/dev/null || true)"
-running="$(printf '%s' "$st" | /usr/bin/jq -r '.process_running // false' 2>/dev/null)"
-healthy="$(printf '%s' "$st" | /usr/bin/jq -r '.healthy // false' 2>/dev/null)"
-ready="$(printf '%s' "$st" | /usr/bin/jq -r '.ready // false' 2>/dev/null)"
+running="$(printf '%s' "$st" | jq -r '.process_running // false' 2>/dev/null)"
+healthy="$(printf '%s' "$st" | jq -r '.healthy // false' 2>/dev/null)"
+ready="$(printf '%s' "$st" | jq -r '.ready // false' 2>/dev/null)"
 echo "install: post-load state — process_running=$running healthy=$healthy ready=$ready"
 if [ "$running" = "true" ] && [ "$healthy" = "true" ] && [ "$ready" = "true" ]; then
   echo "install: OK — managed runtime is up"

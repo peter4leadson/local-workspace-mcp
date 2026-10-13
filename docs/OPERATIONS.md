@@ -121,10 +121,15 @@ the exposed tool count after each step.
 ## OpenAI Secure MCP Tunnel (ChatGPT path)
 
 Cold start: install `tunnel-client`
-(`https://github.com/openai/tunnel-client`), create a tunnel profile
-(`tunnel-client runtimes create`, which writes the YAML naming the stdio
-command and `tunnel_id`), then register the connector in ChatGPT pointing
-at that tunnel. The notes below assume `<alias>` names that profile.
+(`https://github.com/openai/tunnel-client`), create a tunnel and a
+Runtime API key in the OpenAI platform console (Tunnels management +
+Runtime API keys — links in `tunnel-client help doctor`), store the key
+in the keychain or a 0600 file (`file:` ref) — never in the profile YAML
+— then write the profile (`tunnel-client init --profile <name>
+--tunnel-id <tunnel_…> --mcp-command '<workspace-mcp> serve --stdio'
+--control-plane-api-key-ref file:…`) and register the connector in
+ChatGPT pointing at that tunnel while the daemon runs. The notes below
+assume `<alias>` names that profile.
 
 - Supervision: `tunnel-client runtimes connect <alias>` (native managed
   runtime — per OpenAI guidance, do not supervise with nohup/disown;
