@@ -61,8 +61,8 @@ enough that inventing a label would cost clarity.
 
 ## 6. Proposition verdict
 
-Tested: *"Your AI assistant needs context. It doesn't need unrestricted
-access."*
+Tested: _"Your AI assistant needs context. It doesn't need unrestricted
+access."_
 
 - Accurate: mostly. `task_run` is code execution as the user; the
   proposition stands only if the task allowlist is disclosed immediately.
@@ -108,17 +108,17 @@ capability surface).
 
 ### Scoped competitor set (tiered)
 
-| Candidate | Stance | Specialization | Reach | Offer overlap | Distinctiveness | Credibility | Craft proximity | Tier | Profile? |
-|---|---|---|---|---|---|---|---|---|---|
-| `@modelcontextprotocol/server-filesystem` | capability-led | generalist fs | reference impl, default | 5 | 2 (no policy; write surface) | 5 | 5 (`read_media_file` now exists) | Direct | ✓ must-profile |
-| `ellmos-filecommander-mcp` | capability-led | broad fs+media+process | growing | 4 | 4 (metadata-first bounded previews, ZIP, OCR) | 3 | 4 | Direct (breadth) | ✓ must-profile |
-| `j0hanz/filesystem-context-mcp-server` | security-led | read-only + deny defaults | small | 3 | 4 (deny-by-default, RE2, --read-only) | 2 | 4 | Direct (posture) | ✓ must-profile |
-| `egyjs/expose-files-mcp` | security-led | read-only default + cmd allowlist | small | 3 | 4 | 2 | 3 | Direct (posture) | ✓ profile |
-| Desktop Commander | capability-led | full-access workspace | large | 2 | 4 (traction, permissive pole) | 5 | 2 | Adjacent (substitute/cautionary) | ✓ cautionary |
-| `lduda79/projects-mcp`, `sesopenko/mcp-filesystem-readonly`, `k-filesystem-mcp`, `aself101/mcp-secure-server` | mixed | minimal read-only / secure-fs cookbook | niche | 1–2 | 2–3 | 1–2 | 2–3 | Adjacent | ✗ landscape only |
+| Candidate                                                                                                     | Stance         | Specialization                         | Reach                   | Offer overlap | Distinctiveness                               | Credibility | Craft proximity                  | Tier                             | Profile?         |
+| ------------------------------------------------------------------------------------------------------------- | -------------- | -------------------------------------- | ----------------------- | ------------- | --------------------------------------------- | ----------- | -------------------------------- | -------------------------------- | ---------------- |
+| `@modelcontextprotocol/server-filesystem`                                                                     | capability-led | generalist fs                          | reference impl, default | 5             | 2 (no policy; write surface)                  | 5           | 5 (`read_media_file` now exists) | Direct                           | ✓ must-profile   |
+| `ellmos-filecommander-mcp`                                                                                    | capability-led | broad fs+media+process                 | growing                 | 4             | 4 (metadata-first bounded previews, ZIP, OCR) | 3           | 4                                | Direct (breadth)                 | ✓ must-profile   |
+| `j0hanz/filesystem-context-mcp-server`                                                                        | security-led   | read-only + deny defaults              | small                   | 3             | 4 (deny-by-default, RE2, --read-only)         | 2           | 4                                | Direct (posture)                 | ✓ must-profile   |
+| `egyjs/expose-files-mcp`                                                                                      | security-led   | read-only default + cmd allowlist      | small                   | 3             | 4                                             | 2           | 3                                | Direct (posture)                 | ✓ profile        |
+| Desktop Commander                                                                                             | capability-led | full-access workspace                  | large                   | 2             | 4 (traction, permissive pole)                 | 5           | 2                                | Adjacent (substitute/cautionary) | ✓ cautionary     |
+| `lduda79/projects-mcp`, `sesopenko/mcp-filesystem-readonly`, `k-filesystem-mcp`, `aself101/mcp-secure-server` | mixed          | minimal read-only / secure-fs cookbook | niche                   | 1–2           | 2–3                                           | 1–2         | 2–3                              | Adjacent                         | ✗ landscape only |
 
 White-space (the tension nobody else holds): **policy-bounded inspection
-of compound content** — deny rules and content scans applied *inside*
+of compound content** — deny rules and content scans applied _inside_
 archives, PDFs, OOXML, and image metadata, with disclosed transforms.
 Breadth rivals have media without policy; posture rivals have policy
 without media.
@@ -129,13 +129,13 @@ without media.
   the real status quo the acceptance test targets; official
   `read_media_file` (plain base64 pass-through, no bounds/policy);
   FileCommander previews; host built-in image read.
-- Differentiated capabilities: media/document inspection *inside the same
-  boundary* — member-level deny inside ZIPs, private-key scans inside
+- Differentiated capabilities: media/document inspection _inside the same
+  boundary_ — member-level deny inside ZIPs, private-key scans inside
   extracted PDF/OOXML text and image bytes, pixel/page/member/ratio
   budgets, cumulative deadlines, transforms disclosed with
   source→returned SHA-256 provenance, WASM PDFium (no shell, no JS),
   macro/external-rel never executed, per-cell authorization on contact
-  sheets, native `image` blocks *and* full text metadata every call.
+  sheets, native `image` blocks _and_ full text metadata every call.
 - Differentiated value: "the boundary survives the client" now extends to
   **the boundary survives the file format** — an archive or document
   cannot smuggle denied material past the policy because inspection
@@ -147,3 +147,24 @@ without media.
   today (industry-wide, not ours alone) — text metadata is the
   load-bearing path there; a wider surface is a wider audit surface;
   native decode carries a documented residual (in-process libvips).
+
+---
+
+## Delta — 0.2.1 tunnel-persistence round (2026-10-12)
+
+The launchd work does not change positioning; it changes who can _keep_
+the promise. Inputs: `research/audience-corpus.md` 0.2.1 delta.
+
+- New segment: ChatGPT Business/Enterprise/Edu operators running a private
+  MCP through Secure MCP Tunnel — setup is admin-mediated and the
+  tunnel-client vocabulary (`tunnel_id`, Runtime vs Admin API key,
+  `runtimes connect`) is OpenAI's own; we adopt it verbatim.
+- Differentiated capability extended: the only tunnel path whose local
+  runtime is _supervised without nohup_ — OpenAI's docs themselves warn
+  against nohup/disown and bless `runtimes connect`; our launchd layer
+  keeps that managed runtime alive. We position it as supervision of the
+  managed runtime, never as our own daemon.
+- Proposition unchanged. The launchd section's honest loss to state
+  plainly: it is macOS-only, per-user, and it supervises `tunnel-client` —
+  it is not a high-availability mechanism and does not make a stopped
+  tunnel reachable from a powered-off machine.

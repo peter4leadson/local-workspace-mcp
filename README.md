@@ -16,8 +16,10 @@ bounded capability without giving the model a shell.
   (images/archives/PDF/Office), and `task_run` for
   explicitly allowlisted commands.
 - **One transport:** each MCP host spawns `workspace-mcp serve --stdio`.
-  No inbound listener, no daemon; the server itself makes no network calls
-  (allowlisted tasks run as your user and are not network-restricted).
+  The server itself has no inbound listener, keeps no daemon, and makes no
+  network calls (allowlisted tasks run as your user and are not
+  network-restricted; the ChatGPT tunnel path below runs a supervised
+  `tunnel-client` process instead of a host-spawned one).
 - **Honest scope:** `task_run` executes real commands as your user. The
   allowlist bounds _what can be invoked_, not what invoked code can do.
   It is not a sandbox.
@@ -207,35 +209,57 @@ args = ["serve", "--stdio"]
 
 ChatGPT / Responses API use the OpenAI Secure MCP Tunnel: `tunnel-client`
 polls an outbound HTTPS path and spawns the stdio command locally; no
-inbound network listener opens.
+inbound network listener opens (tunnel-client optionally binds a
+loopback-only health endpoint — see docs/OPERATIONS.md).
+
+Three values are involved — keep them straight (OpenAI's own docs warn
+they are commonly conflated): `tunnel_…` is an identifier, not a secret;
+the **Runtime API key** is the only secret the daemon needs (its
+`env:` name is `CONTROL_PLANE_API_KEY`); an **Admin API key** is needed
+only to create or manage tunnels from the CLI — not here.
 
 ```sh
 # 1. Install tunnel-client (github.com/openai/tunnel-client).
-# 2. In the OpenAI platform console create a tunnel and a Runtime API key:
+# 2. In the OpenAI platform console, create a tunnel and a Runtime API key
+#    (Tunnels permission: Read+Use to run/select one, Read+Manage to create):
 #      https://platform.openai.com/settings/organization/tunnels
 #      https://platform.openai.com/settings/organization/api-keys
-# 3. Store the key somewhere the daemon can read it unattended — a 0600
-#    file referenced as `file:` works under launchd; `env:` is the
-#    interactive default. Never put the raw key in the profile, a plist,
-#    or on a command line.
-# 4. Write the profile and start the managed runtime (attach to the
-#    existing tunnel id — no admin key needed):
+# 3. Store the key where the daemon can read it unattended. On macOS, put it
+#    in the login keychain and materialize a 0600 file the profile will
+#    reference via `file:` (scripts/launchd/install.sh does both steps
+#    against this exact location; on other platforms write the file
+#    directly). Never put the raw key in the profile YAML, a plist, or on a
+#    command line.
+security add-generic-password -s tunnel-client-control-plane -a "$USER" -w
+mkdir -p "$HOME/Library/Application Support/tunnel-client/secrets"
+chmod 700 "$HOME/Library/Application Support/tunnel-client/secrets"
+security find-generic-password -s tunnel-client-control-plane -a "$USER" -w \
+  > "$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
+chmod 600 "$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
+# 4. Write the profile, validate it, and start the managed runtime
+#    (attach to the existing tunnel id — no admin key needed):
 tunnel-client init --profile local-workspace \
   --tunnel-id <tunnel_…> \
   --mcp-command "$(command -v workspace-mcp) serve --stdio" \
-  --control-plane-api-key-ref file:/path/to/control-plane-api-key
+  --control-plane-api-key-ref file:"$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
+tunnel-client doctor --profile local-workspace --explain
 tunnel-client runtimes connect --alias local-workspace \
-  --profile local-workspace --tunnel-id <tunnel_…>
+  --profile local-workspace --tunnel-id <tunnel_…> \
+  --runtime-api-key file:"$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
 tunnel-client runtimes status local-workspace --json
 #    expect process_running=true, healthy=true, ready=true
-# 5. ChatGPT → Settings → Connectors → add/refresh a connector bound to
-#    this tunnel while the daemon is running.
+# 5. In ChatGPT: https://chatgpt.com/#settings/Connectors → add connector →
+#    Connection: Tunnel → select the tunnel (or paste its id) while the
+#    daemon is running. A tunnel created in Platform does not appear in
+#    ChatGPT until you bind a connector to it here.
 ```
 
 macOS persistence: `scripts/launchd/install.sh` installs a per-user
-LaunchAgent that keeps the managed runtime alive across reboots, app
-restarts, process death, network drops, and sleep/wake — no manual
-restarts. Requires `jq` on PATH. See
+LaunchAgent that keeps the managed runtime alive across restarts, logins,
+app restarts, process death, network drops, and sleep/wake — no manual
+restarts. It expects the keychain item from step 3
+(`tunnel-client-control-plane`, account `$USER`) and materializes the
+0600 file itself. Requires `jq` on PATH. See
 [docs/OPERATIONS.md §Persistence](docs/OPERATIONS.md#persistence-macos-launchd).
 Operator runbook: [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
@@ -403,6 +427,7 @@ the file first if you intend a reset.
 | `TIMEOUT:` on a media call/item              | deadline hit — narrow the request (fewer pages/items, smaller `fitMaxDim`) or raise `limits.mediaTimeoutMs`                      |
 | Unexpected `INTERNAL_ERROR`                  | check the host's MCP stderr log; report per [SECURITY.md](SECURITY.md)                                                           |
 | Tunnel (ChatGPT) down                        | `tunnel-client runtimes status`; recovery in [docs/OPERATIONS.md](docs/OPERATIONS.md)                                            |
+| Tunnel created but not selectable in ChatGPT | check Tunnels Read+Use on your principal and wait for propagation; a tunnel in Platform does not appear in ChatGPT on its own    |
 | Tunnel gone after reboot/login               | `scripts/launchd/install.sh` installs the self-healing LaunchAgent; see [docs/OPERATIONS.md §Persistence](docs/OPERATIONS.md)    |
 
 `workspace-mcp doctor --json` gives machine-readable output for CI or

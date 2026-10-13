@@ -6,17 +6,23 @@
 #   workspace-mcp stdio server → tool catalog + real tool calls
 #
 # Exit 0 = every check passed. Exit 1 = at least one failed (each line says
-# PASS/FAIL so the first failure is obvious). Read-only: no state changes.
+# PASS/FAIL so the first failure is obvious). No mutating calls — but the
+# stdio probe issues real read-only tool calls, which append audit metadata
+# to the server's audit log.
 
 set -u
-export PATH="$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 LABEL="io.github.peter4leadson.local-workspace-mcp.tunnel"
 ALIAS="local-workspace"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
-WORKSPACE_MCP="$HOME/.local/bin/workspace-mcp"
+TUNNEL_CLIENT="$(command -v tunnel-client 2>/dev/null || echo "$HOME/.local/bin/tunnel-client")"
+WORKSPACE_MCP="$(command -v workspace-mcp 2>/dev/null || echo "$HOME/.local/bin/workspace-mcp")"
 JQ="$(command -v jq)"
+if [ -z "$JQ" ]; then
+  echo "FAIL jq not on PATH — required for status parsing"
+  exit 1
+fi
 SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
 PROFILE_FILE="$HOME/.config/tunnel-client/$ALIAS.yaml"
 GIT_WORKSPACE_HINT="agent-tools"
@@ -67,7 +73,9 @@ fi
 grep -q "\"api_key\": \"file:" "$PROFILE_FILE" 2>/dev/null \
   && ok "profile api_key is a file: ref" \
   || bad "profile api_key is not a file: ref (env: refs leak via process env)"
-n_leak="$(pgrep -fl "^$TUNNEL_CLIENT run" | grep -c "sk-" || true)"
+# BSD pgrep -l prints comm only, so inspect real argv via ps — otherwise a
+# key in daemon argv would pass this check silently.
+n_leak="$(pgrep -f "tunnel-client run" | while read -r pid; do ps -o command= -p "$pid"; done | grep -c "sk-" || true)"
 [ "$n_leak" = "0" ] && ok "no API key in daemon argv" \
   || bad "API key material visible in daemon argv ($n_leak process lines)"
 
@@ -80,7 +88,9 @@ fi
 
 note "MCP stdio probe (tools/catalog + calls)"
 /usr/bin/python3 - "$WORKSPACE_MCP" "$EXPECTED_TOOLS" "$GIT_WORKSPACE_HINT" $REQUIRED_MEDIA <<'PY'
-import json, subprocess, sys
+import json, signal, subprocess, sys
+
+signal.alarm(90)  # a hung server must not hang the health check
 
 mcp, expected, hint = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 media = sys.argv[4:]

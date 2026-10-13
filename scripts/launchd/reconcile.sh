@@ -3,9 +3,9 @@
 # tunnel-client managed runtime.
 #
 # Invoked by the per-user LaunchAgent
-# io.github.peter4leadson.local-workspace-mcp.tunnel (RunAtLoad + StartInterval)
-# and by install.sh for an immediate first pass. Safe to run by hand at any
-# time: it never starts a second runtime while one is already alive.
+# io.github.peter4leadson.local-workspace-mcp.tunnel (RunAtLoad + StartInterval).
+# Safe to run by hand at any time: it never starts a second runtime while one
+# is already alive.
 #
 # Exit contract:
 #   0 = runtime is, or was brought to, process_running + healthy + ready
@@ -20,19 +20,30 @@
 set -u
 
 # Minimal, explicit PATH. The managed runtime spawns `workspace-mcp`, whose
-# launcher is a `#!/usr/bin/env node` script, so node (asdf shims), git, rg,
-# and task executables (pnpm) must be resolvable here.
-export PATH="$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# launcher is a `#!/usr/bin/env node` script, so node, git, rg, and task
+# executables must be resolvable here. install.sh bakes the caller-resolved
+# tool dirs into the plist's EnvironmentVariables PATH; appending the
+# inherited PATH keeps those resolved dirs (and manual-run PATHs) reachable
+# without putting arbitrary dirs ahead of the pinned defaults.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 ALIAS="local-workspace"
-TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
-MCP_COMMAND="$HOME/.local/bin/workspace-mcp serve --stdio"
+TUNNEL_CLIENT="$(command -v tunnel-client 2>/dev/null || echo "$HOME/.local/bin/tunnel-client")"
+MCP_COMMAND="$(command -v workspace-mcp 2>/dev/null || echo "$HOME/.local/bin/workspace-mcp") serve --stdio"
 PROFILE="local-workspace"
 PROFILE_DIR="$HOME/.config/tunnel-client"
 ADMIN_PROFILE="default"
 SECRET_FILE="$HOME/Library/Application Support/tunnel-client/secrets/control-plane-api-key"
 API_KEY_REF="file:$SECRET_FILE"
 JQ="$(command -v jq)"
+
+# Fail fast with a legible error: without jq every status read below would
+# degrade to "no JSON" and the failure mode would be unreadable in the log.
+if [ -z "$JQ" ]; then
+  printf '%s [reconcile] ERROR: jq not on PATH — cannot parse runtimes status\n' \
+    "$(date '+%Y-%m-%dT%H:%M:%S%z')" >&2
+  exit 1
+fi
 
 STATE_DIR="$HOME/Library/Application Support/local-workspace-mcp"
 STATE_FILE="$STATE_DIR/reconcile.state"
@@ -69,7 +80,10 @@ acquire_lock() {
     return 0
   fi
   local mtime now
-  mtime="$(stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)"
+  mtime="$(stat -f %m "$LOCK_DIR" 2>/dev/null || true)"
+  # Indeterminate age (stat failed) is not stale — do not take over a lock
+  # we cannot prove old; that path could split-brain two live reconciles.
+  [ -z "$mtime" ] && return 1
   now="$(date +%s)"
   if [ $((now - mtime)) -gt 180 ]; then
     rmdir "$LOCK_DIR" 2>/dev/null || true
@@ -115,24 +129,29 @@ stop_runtime() {
   return 1
 }
 
-connect_runtime() {
-  local rc waited st tunnel_id
-
+# Validate everything a connect attempt needs BEFORE stopping a live
+# daemon: a missing key file or alias record must fail the pass cleanly,
+# never turn a limping runtime into a dead one.
+TUNNEL_ID=""
+preflight_connect() {
   [ -r "$SECRET_FILE" ] || {
     log "ERROR: runtime API key file missing/unreadable: $SECRET_FILE (run scripts/launchd/install.sh)"
     return 1
   }
-
   # Resolve the existing tunnel ID from the local alias record and attach to
   # it explicitly. Connecting with --tunnel-id requires no admin CRUD
   # (OPENAI_ADMIN_KEY is intentionally absent from this machine's runtime
   # path) and can never create a replacement tunnel.
-  tunnel_id="$("$TUNNEL_CLIENT" runtimes list --json 2>/dev/null \
+  TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json 2>/dev/null \
     | "$JQ" -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id // empty')"
-  if [ -z "$tunnel_id" ]; then
+  if [ -z "$TUNNEL_ID" ]; then
     log "ERROR: could not resolve tunnel_id for alias=$ALIAS"
     return 1
   fi
+}
+
+connect_runtime() {
+  local rc waited st tunnel_id="$TUNNEL_ID"
 
   log "connect: starting managed runtime (alias=$ALIAS tunnel_id=$tunnel_id)"
   "$TUNNEL_CLIENT" runtimes connect \
@@ -189,6 +208,7 @@ main() {
       return 0
     fi
     log "runtime unhealthy for $n consecutive checks — controlled restart"
+    preflight_connect || return 1
     stop_runtime
     if connect_runtime; then write_counter 0; return 0; fi
     return 1
@@ -196,6 +216,7 @@ main() {
 
   # No live process: clean any stale daemon holding the lock, then start.
   log "no running runtime — starting managed runtime"
+  preflight_connect || return 1
   stop_runtime
   if connect_runtime; then write_counter 0; return 0; fi
   return 1

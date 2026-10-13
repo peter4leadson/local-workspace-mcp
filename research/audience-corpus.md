@@ -94,21 +94,21 @@ you" discourse, 147 unauthenticated public MCPs (Pluto).
 
 ## Competitive landscape (pruned, tiered)
 
-| Alternative | Tier | Permission model | Notes |
-|---|---|---|---|
-| @modelcontextprotocol/server-filesystem | Direct | read+write; allowed dirs via argv/roots; **no default secrets denylist** | ~411-669k wk npm dl; .env overwrite incident #1869; fix PR #1901 closed unmerged |
-| @j0hanz/filesystem-mcp | Direct — closest pitch | read+write with `--read-only` flag; `.env`/`*.pem`/`id_rsa` denylist + `--deny`/`--allow`; symlink-escape prevention; RE2 search | popularity unverified |
-| project-files-readonly-mcp | Direct | structurally read-only; lexical+realpath double boundary; blocks `.git`/`.env`/keys | Windows-oriented, document focus |
-| Desktop Commander | Direct capability, opposite posture | read+write+terminal exec; `allowedDirectories` + `blockedCommands`; self-documents "not a sandbox", symlink bypass (issue #420) | ~9.5k stars; 325k+ wk dl (self-claim) |
-| codemcp | Adjacent — task-allowlist precedent | predeclared commands in `codemcp.toml`; own warning: "Anyone with access to this MCP can perform arbitrary code execution" | git-versions LLM edits |
-| mcp-server-git (PyPI) | Adjacent | git read+manipulate incl. commit; source archived 2025-05 but still ships | ~774k dl/mo |
-| cyanheads/git-mcp-server | Adjacent | full git incl. push/reset/clean; `GIT_BASE_DIR`; "no shell interpolation" | ~7.1k wk |
-| Host built-ins (Claude Code permissions etc.) | **Substitute — the real rival** | permission modes, `permissions.allow/ask/deny` (documented `.env` Read deny), `additionalDirectories`, managed allowlists | zero install; boundary lives client-side and is routinely bypassed under fatigue |
+| Alternative                                   | Tier                                | Permission model                                                                                                                 | Notes                                                                            |
+| --------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| @modelcontextprotocol/server-filesystem       | Direct                              | read+write; allowed dirs via argv/roots; **no default secrets denylist**                                                         | ~411-669k wk npm dl; .env overwrite incident #1869; fix PR #1901 closed unmerged |
+| @j0hanz/filesystem-mcp                        | Direct — closest pitch              | read+write with `--read-only` flag; `.env`/`*.pem`/`id_rsa` denylist + `--deny`/`--allow`; symlink-escape prevention; RE2 search | popularity unverified                                                            |
+| project-files-readonly-mcp                    | Direct                              | structurally read-only; lexical+realpath double boundary; blocks `.git`/`.env`/keys                                              | Windows-oriented, document focus                                                 |
+| Desktop Commander                             | Direct capability, opposite posture | read+write+terminal exec; `allowedDirectories` + `blockedCommands`; self-documents "not a sandbox", symlink bypass (issue #420)  | ~9.5k stars; 325k+ wk dl (self-claim)                                            |
+| codemcp                                       | Adjacent — task-allowlist precedent | predeclared commands in `codemcp.toml`; own warning: "Anyone with access to this MCP can perform arbitrary code execution"       | git-versions LLM edits                                                           |
+| mcp-server-git (PyPI)                         | Adjacent                            | git read+manipulate incl. commit; source archived 2025-05 but still ships                                                        | ~774k dl/mo                                                                      |
+| cyanheads/git-mcp-server                      | Adjacent                            | full git incl. push/reset/clean; `GIT_BASE_DIR`; "no shell interpolation"                                                        | ~7.1k wk                                                                         |
+| Host built-ins (Claude Code permissions etc.) | **Substitute — the real rival**     | permission modes, `permissions.allow/ask/deny` (documented `.env` Read deny), `additionalDirectories`, managed allowlists        | zero install; boundary lives client-side and is routinely bypassed under fatigue |
 
 Honest gap: nobody else combines bounded roots + default-deny secrets +
 read-only git + allowlisted named tasks + metadata audit in one small stdio
 server. "Read-only + denylist" alone is already occupied — differentiate on
-the *invariant* (write/exec code does not exist in the process), the git read
+the _invariant_ (write/exec code does not exist in the process), the git read
 surface, the task allowlist, and demonstrated adversarial testing.
 
 ## Language corpus
@@ -208,7 +208,7 @@ boundary. Sources listed per-claim.
 - Audience 1 (engineers): the "screenshot/PDF in workspace → model sees it"
   workflow is now expected of any serious workspace MCP — the official
   server and FileCommander both ship a form of it. Our differentiation is
-  *bounded, policy-enforced, disclosure-first* inspection (deny rules and
+  _bounded, policy-enforced, disclosure-first_ inspection (deny rules and
   armor scans applied inside archives/documents too, transforms disclosed
   with SHA-256 provenance), not the presence of media tools per se.
 - Audience 2 (security-conscious leads): a media tool widens the emission
@@ -223,7 +223,7 @@ boundary. Sources listed per-claim.
 
 ### Spot-verification items for the delta
 
-- Whether ChatGPT's *non-dev* connector path treats `ImageContent`
+- Whether ChatGPT's _non-dev_ connector path treats `ImageContent`
   differently (our canary is the real test).
 - FileCommander's actual weekly downloads/traction — not probed.
 - `read_media_file` availability vs the version of the reference server
@@ -237,3 +237,64 @@ github.com/j0hanz/filesystem-context-mcp-server; github.com/egyjs/expose-files-m
 github.com/lduda79/projects-mcp; pvliesdonk.github.io/image-generation-mcp
 (client-compatibility matrix); chatforest.com/guides/mcp-multimodal-patterns;
 docs.mcpjam.com/inspector/host-compat.
+
+---
+
+## Delta — 0.2.1 tunnel-persistence round (2026-10-12)
+
+Provenance: compiled for the launchd-persistence release. Research question:
+who operates a local MCP server _through_ the OpenAI Secure MCP Tunnel, and
+what language do they use? Sources listed per-claim.
+
+### New audience surfaced: ChatGPT workspace operators
+
+The tunnel path adds an audience the 0.1.0 corpus did not model: operators
+on **ChatGPT Business / Enterprise / Edu** plans, where developer mode and
+custom MCP apps are admin-gated
+[help.openai.com 12584461; developers.openai.com custom-mcp-server]. Their
+reality differs from Audience 1:
+
+- Setup is **admin-mediated**: an admin/owner enables developer mode and
+  publishes the connector; the person running `tunnel-client` locally may
+  not control the ChatGPT side. Docs must name the handoff ("a tunnel in
+  Platform does not automatically appear in ChatGPT" —
+  tunnel-client `docs/end-user-guide.md` calls this out directly).
+- Their vocabulary is OpenAI-console vocabulary: "Secure MCP Tunnel",
+  `tunnel_id`, "Runtime API key" vs "Admin API key", "connector",
+  "developer mode". The end-user guide's central confusion warning —
+  `tunnel_id` is not the runtime API key — is the exact failure our docs
+  must prevent by keeping the three values visually separate.
+- Persistence is a named operator problem: tunnel-client's own docs warn
+  against `nohup`/`disown` and bless `runtimes connect` as the supervised
+  path [github.com/openai/tunnel-client README]. Our launchd layer is
+  supervision _of that managed runtime_, and should be described that way —
+  not as running the server ourselves.
+
+### Competitive movement on this surface
+
+`YoshiaKefasu/mcp-local-files` [glama.ai listing] — a minimal Windows
+tunnel-based server exposing one folder to ChatGPT/Codex, with a guided
+`setup` that walks operators through tunnel id + runtime key + profile.
+It is the closest _distribution-shape_ precedent for our tunnel docs: the
+gap it leaves (read+edit scope, one folder, no deny policy, no git) is the
+same gap we hold elsewhere. Its existence confirms the audience: people
+already wire private folders to ChatGPT through this tunnel and will copy
+whatever setup pattern ships first.
+
+### What this changes
+
+- README tunnel section must keep "Runtime API key", "tunnel id", and
+  "Admin key" as three visibly distinct values (matches OpenAI's own
+  doc structure) and must not promise ChatGPT visibility from the CLI alone.
+- The persistence story is legitimate audience vocabulary, not ops trivia:
+  "stays up across reboots without nohup" answers a documented operator
+  pain tunnel-client itself names.
+- Register stays mechanism-first: "LaunchAgent re-checks the managed
+  runtime every 60 s" not "always-on".
+
+### Spot-verification items (delta)
+
+- Whether ChatGPT free/Plus/Pro (non-Business) can attach tunnel-backed
+  connectors — OpenAI docs name Business/Enterprise/Edu for developer mode;
+  do not claim wider availability.
+- `mcp-local-files` traction — single niche listing; landscape only.

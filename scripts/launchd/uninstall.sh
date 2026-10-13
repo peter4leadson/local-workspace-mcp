@@ -35,7 +35,12 @@ fi
 
 if [ "$stop_runtime" -eq 1 ]; then
   "$TUNNEL_CLIENT" runtimes stop "$ALIAS" >/dev/null 2>&1 || true
-  echo "uninstall: managed runtime for alias '$ALIAS' stopped"
+  sleep 2
+  if pgrep -f "tunnel-client run --profile-dir $HOME/.config/tunnel-client --profile $ALIAS( |$)" >/dev/null 2>&1; then
+    echo "uninstall: WARNING — a tunnel-client run process for '$ALIAS' survived 'runtimes stop'; kill it manually"
+  else
+    echo "uninstall: managed runtime for alias '$ALIAS' stopped"
+  fi
 else
   echo "uninstall: managed runtime left running (use --stop-runtime to stop it)"
 fi

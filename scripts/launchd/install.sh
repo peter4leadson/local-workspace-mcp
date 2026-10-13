@@ -29,10 +29,10 @@ PLIST="$PLIST_DIR/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/local-workspace-mcp"
 STATE_DIR="$HOME/Library/Application Support/local-workspace-mcp"
 DOMAIN="gui/$(id -u)"
-TUNNEL_CLIENT="$HOME/.local/bin/tunnel-client"
-WORKSPACE_MCP="$HOME/.local/bin/workspace-mcp"
+TUNNEL_CLIENT="${TUNNEL_CLIENT:-$(command -v tunnel-client 2>/dev/null || echo "$HOME/.local/bin/tunnel-client")}"
+WORKSPACE_MCP="${WORKSPACE_MCP:-$(command -v workspace-mcp 2>/dev/null || echo "$HOME/.local/bin/workspace-mcp")}"
 KEYCHAIN_SERVICE="tunnel-client-control-plane"
-KEYCHAIN_ACCOUNT="${USER}"
+KEYCHAIN_ACCOUNT="${USER:-$(id -un)}"
 SECRET_DIR="$HOME/Library/Application Support/tunnel-client/secrets"
 SECRET_FILE="$SECRET_DIR/control-plane-api-key"
 API_KEY_REF="file:$SECRET_FILE"
@@ -51,7 +51,26 @@ command -v jq >/dev/null 2>&1 || fail "jq not on PATH (needed by reconcile)"
 
 "$TUNNEL_CLIENT" runtimes list --json 2>/dev/null \
   | jq -e --arg a "$ALIAS" '.aliases[] | select(.alias == $a)' >/dev/null \
-  || fail "alias '$ALIAS' not registered — create it once via tunnel-client runtimes create"
+  || fail "alias '$ALIAS' not registered — see the README tunnel setup (create the tunnel in Platform, then tunnel-client init --profile $ALIAS --tunnel-id <tunnel_…>)"
+
+# The agent's PATH must resolve everything the daemon will spawn:
+# workspace-mcp's launcher is `#!/usr/bin/env node`, and tools/tasks need
+# git, rg and pnpm. Compute it from the tools that resolve on the caller's
+# PATH, then verify each tool under the exact PATH the agent will get —
+# otherwise a node/nvm install outside the defaults starts a daemon that
+# can never spawn the server and reconcile churns restarts forever.
+BASE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+AGENT_PATH="$BASE_PATH"
+for tool in node git rg pnpm "$WORKSPACE_MCP" "$TUNNEL_CLIENT" jq; do
+  d="$(command -v "$tool" 2>/dev/null)" || continue
+  d="$(dirname "$d" 2>/dev/null)" || continue
+  [ -n "$d" ] && [ "$d" != "." ] || continue
+  case ":$AGENT_PATH:" in (*":$d:"*) ;; (*) AGENT_PATH="$d:$AGENT_PATH" ;; esac
+done
+for tool in node git rg workspace-mcp tunnel-client jq; do
+  env PATH="$AGENT_PATH" command -v "$tool" >/dev/null 2>&1 \
+    || fail "$tool does not resolve under the agent PATH — install it somewhere on PATH (see OPERATIONS §Persistence)"
+done
 
 # --- secret file (keychain → 0600 file → profile `file:` ref) ---------------
 if [ "${1:-}" = "--refresh-secret" ] || [ ! -s "$SECRET_FILE" ]; then
@@ -60,8 +79,10 @@ if [ "${1:-}" = "--refresh-secret" ] || [ ! -s "$SECRET_FILE" ]; then
   mkdir -p "$SECRET_DIR"
   chmod 700 "$SECRET_DIR"
   umask 077
-  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w > "$SECRET_FILE" \
+  tmp_secret="$SECRET_FILE.tmp.$$"
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w > "$tmp_secret" \
     || fail "could not write $SECRET_FILE"
+  mv -f "$tmp_secret" "$SECRET_FILE"
   chmod 600 "$SECRET_FILE"
   echo "install: secret materialized from keychain → $SECRET_FILE (0600)"
 else
@@ -72,7 +93,9 @@ fi
 # Assert the profile carries the `file:` ref. `runtimes connect` rewrites
 # the profile on every connect, so reconcile.sh re-asserts the ref via
 # --runtime-api-key; this line covers manual `tunnel-client run` starts.
-/usr/bin/python3 - "$PROFILE_FILE" "$API_KEY_REF" <<'PY' || fail "could not pin api_key file: ref in profile"
+PYTHON="$(command -v python3 2>/dev/null || true)"
+[ -n "$PYTHON" ] || fail "python3 not on PATH (needed to pin the profile api_key ref)"
+"$PYTHON" - "$PROFILE_FILE" "$API_KEY_REF" <<'PY' || fail "could not pin api_key file: ref in profile"
 import re, sys
 path, ref = sys.argv[1], sys.argv[2]
 src = open(path).read()
@@ -86,7 +109,7 @@ else:
     print("install: profile api_key already file: ref")
 PY
 
-TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json | jq -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id')"
+TUNNEL_ID="$("$TUNNEL_CLIENT" runtimes list --json 2>/dev/null | jq -r --arg a "$ALIAS" '.aliases[] | select(.alias == $a) | .tunnel_id // empty')" || fail "could not read tunnel_id for alias $ALIAS"
 
 mkdir -p "$PLIST_DIR" "$LOG_DIR" "$STATE_DIR"
 
@@ -106,7 +129,7 @@ cat > "$PLIST" <<EOF
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
-		<string>$HOME/.asdf/shims:$HOME/.local/bin:$HOME/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>$AGENT_PATH</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
